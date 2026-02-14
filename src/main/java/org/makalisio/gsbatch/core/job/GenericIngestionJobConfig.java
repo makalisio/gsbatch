@@ -9,12 +9,13 @@ import org.makalisio.gsbatch.core.reader.GenericItemReaderFactory;
 import org.makalisio.gsbatch.core.writer.GenericItemWriterFactory;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
+import org.springframework.batch.core.configuration.annotation.JobScope;   // ← AJOUT
 import org.springframework.batch.core.configuration.annotation.StepScope;
 import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.item.ItemProcessor;
-import org.springframework.batch.item.ItemReader;
+import org.springframework.batch.item.ItemStreamReader;
 import org.springframework.batch.item.ItemWriter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -22,9 +23,25 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.transaction.PlatformTransactionManager;
 
 /**
- * Configuration class for the generic ingestion job.
- * This job reads data from various sources (CSV, SQL, etc.) using dynamic configuration,
- * processes it, and writes it to configured destinations.
+ * Configuration du job générique d'ingestion.
+ *
+ * <h2>Cycle de vie des beans</h2>
+ * <pre>
+ *   Démarrage application
+ *     └─ genericIngestionJob        (singleton)
+ *          └─ genericIngestionStep  (@JobScope  → créé au lancement du job)
+ *               ├─ reader           (@StepScope → créé au démarrage du step)
+ *               ├─ processor        (@StepScope → créé au démarrage du step)
+ *               └─ writer           (@StepScope → créé au démarrage du step)
+ * </pre>
+ *
+ * <h2>Pourquoi @JobScope sur le Step ?</h2>
+ * <p>
+ * {@code @Value("#{jobParameters['sourceName']}")} utilise SpEL pour lire les paramètres
+ * du job. Ces paramètres ne sont disponibles qu'à l'exécution du job, pas au démarrage
+ * de l'application. Sans {@code @JobScope}, Spring tente de résoudre l'expression au
+ * démarrage → {@code SpelEvaluationException: jobParameters cannot be found}.
+ * </p>
  *
  * @author Makalisio
  * @since 0.0.1
@@ -38,6 +55,12 @@ public class GenericIngestionJobConfig {
     private final GenericItemProcessorFactory processorFactory;
     private final GenericItemWriterFactory writerFactory;
 
+    /**
+     * @param configLoader    le loader de configuration YAML
+     * @param readerFactory   la factory de readers
+     * @param processorFactory la factory de processors
+     * @param writerFactory   la factory de writers
+     */
     public GenericIngestionJobConfig(
             YamlSourceConfigLoader configLoader,
             GenericItemReaderFactory readerFactory,
@@ -51,12 +74,18 @@ public class GenericIngestionJobConfig {
         log.info("GenericIngestionJobConfig initialized");
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    //  JOB  (Singleton — pas d'accès aux jobParameters)
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * Defines the main ingestion job.
+     * Job générique d'ingestion.
+     * Bean singleton : créé au démarrage de l'application.
+     * Injecte le Step via son proxy JobScope.
      *
-     * @param jobRepository the Spring Batch job repository
-     * @param genericIngestionStep the step to execute
-     * @return the configured Job
+     * @param jobRepository le dépôt Spring Batch
+     * @param genericIngestionStep le step à exécuter (proxy JobScope)
+     * @return le job configuré
      */
     @Bean
     public Job genericIngestionJob(JobRepository jobRepository,
@@ -67,25 +96,37 @@ public class GenericIngestionJobConfig {
                 .build();
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    //  STEP  (@JobScope — créé au lancement du job, jobParameters disponibles)
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * Defines the ingestion step with chunk-oriented processing.
-     * The chunk size is configured per source in the YAML configuration.
+     * Step générique d'ingestion.
      *
-     * @param jobRepository the Spring Batch job repository
-     * @param transactionManager the transaction manager
-     * @param genericIngestionReader the item reader
-     * @param genericIngestionProcessor the item processor
-     * @param genericIngestionWriter the item writer
-     * @param sourceName the source name from job parameters
-     * @return the configured Step
+     * <p><b>@JobScope est obligatoire</b> : permet à Spring de résoudre
+     * {@code #{jobParameters['sourceName']}} au moment du lancement du job,
+     * et non au démarrage de l'application.</p>
+     *
+     * <p>Les beans reader/processor/writer injectés ici sont des <b>proxys CGLIB</b>
+     * (@StepScope). Spring Batch les résoudra au démarrage du step.</p>
+     *
+     * @param jobRepository le dépôt Spring Batch
+     * @param transactionManager le gestionnaire de transaction
+     * @param genericIngestionReader le reader (proxy StepScope)
+     * @param genericIngestionProcessor le processor (proxy StepScope)
+     * @param genericIngestionWriter le writer (proxy StepScope)
+     * @param sourceName injecté depuis les paramètres du job
+     * @return le step configuré
      */
     @Bean
-    public Step genericIngestionStep(JobRepository jobRepository,
-                                     PlatformTransactionManager transactionManager,
-                                     ItemReader<GenericRecord> genericIngestionReader,
-                                     ItemProcessor<GenericRecord, GenericRecord> genericIngestionProcessor,
-                                     ItemWriter<GenericRecord> genericIngestionWriter,
-                                     @Value("#{jobParameters['sourceName']}") String sourceName) {
+    @JobScope  // ← CORRECTION CLEF : résout jobParameters au lancement du job
+    public Step genericIngestionStep(
+            JobRepository jobRepository,
+            PlatformTransactionManager transactionManager,
+            ItemStreamReader<GenericRecord> genericIngestionReader,
+            ItemProcessor<GenericRecord, GenericRecord> genericIngestionProcessor,
+            ItemWriter<GenericRecord> genericIngestionWriter,
+            @Value("#{jobParameters['sourceName']}") String sourceName) {
 
         SourceConfig config = configLoader.load(sourceName);
         int chunkSize = config.getChunkSize();
@@ -100,16 +141,20 @@ public class GenericIngestionJobConfig {
                 .build();
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    //  READER / PROCESSOR / WRITER  (@StepScope — créés au démarrage du step)
+    // ─────────────────────────────────────────────────────────────────────────
+
     /**
-     * Creates the item reader bean for the current source.
-     * The reader is step-scoped to allow dynamic configuration per job execution.
+     * Reader générique, créé au démarrage du step (StepScope).
+     * Le sourceName est résolu depuis les jobParameters.
      *
-     * @param sourceName the source name from job parameters
-     * @return the configured ItemReader
+     * @param sourceName le nom de la source (depuis jobParameters)
+     * @return le reader configuré pour la source (ItemStreamReader = ItemReader + ItemStream)
      */
     @Bean
     @StepScope
-    public ItemReader<GenericRecord> genericIngestionReader(
+    public ItemStreamReader<GenericRecord> genericIngestionReader(
             @Value("#{jobParameters['sourceName']}") String sourceName) {
 
         log.debug("Creating reader for source: {}", sourceName);
@@ -118,11 +163,11 @@ public class GenericIngestionJobConfig {
     }
 
     /**
-     * Creates the item processor bean for the current source.
-     * The processor is step-scoped to allow dynamic configuration per job execution.
+     * Processor générique, créé au démarrage du step (StepScope).
+     * Le sourceName est résolu depuis les jobParameters.
      *
-     * @param sourceName the source name from job parameters
-     * @return the configured ItemProcessor
+     * @param sourceName le nom de la source (depuis jobParameters)
+     * @return le processor configuré pour la source
      */
     @Bean
     @StepScope
@@ -135,11 +180,11 @@ public class GenericIngestionJobConfig {
     }
 
     /**
-     * Creates the item writer bean for the current source.
-     * The writer is step-scoped to allow dynamic configuration per job execution.
+     * Writer générique, créé au démarrage du step (StepScope).
+     * Le sourceName est résolu depuis les jobParameters.
      *
-     * @param sourceName the source name from job parameters
-     * @return the configured ItemWriter
+     * @param sourceName le nom de la source (depuis jobParameters)
+     * @return le writer configuré pour la source
      */
     @Bean
     @StepScope

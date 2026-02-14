@@ -4,7 +4,7 @@ package org.makalisio.gsbatch.core.reader;
 import lombok.extern.slf4j.Slf4j;
 import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.SourceConfig;
-import org.springframework.batch.item.ItemReader;
+import org.springframework.batch.item.ItemStreamReader;
 import org.springframework.stereotype.Component;
 
 /**
@@ -20,6 +20,9 @@ public class GenericItemReaderFactory {
 
     private final CsvGenericItemReaderBuilder csvReaderBuilder;
 
+    /**
+     * @param csvReaderBuilder le builder pour les sources CSV
+     */
     public GenericItemReaderFactory(CsvGenericItemReaderBuilder csvReaderBuilder) {
         this.csvReaderBuilder = csvReaderBuilder;
         log.info("GenericItemReaderFactory initialized");
@@ -29,10 +32,10 @@ public class GenericItemReaderFactory {
      * Builds an ItemReader based on the source configuration.
      *
      * @param config the source configuration
-     * @return configured ItemReader
+     * @return configured ItemStreamReader (extends ItemReader + ItemStream)
      * @throws IllegalArgumentException if source type is unsupported or null
      */
-    public ItemReader<GenericRecord> buildReader(SourceConfig config) {
+    public ItemStreamReader<GenericRecord> buildReader(SourceConfig config) {
         if (config == null) {
             throw new IllegalArgumentException("SourceConfig cannot be null");
         }
@@ -40,7 +43,7 @@ public class GenericItemReaderFactory {
         String type = config.getType();
         if (type == null || type.isBlank()) {
             throw new IllegalArgumentException(
-                "Source type must not be null or blank for source: " + config.getName()
+                    "Source type must not be null or blank for source: " + config.getName()
             );
         }
 
@@ -49,27 +52,27 @@ public class GenericItemReaderFactory {
         switch (type.toUpperCase()) {
             case "CSV":
                 return csvReaderBuilder.build(config);
-            
+
             // Future support for other types
             case "SQL":
                 throw new UnsupportedOperationException(
-                    "SQL reader not yet implemented for source: " + config.getName()
+                        "SQL reader not yet implemented for source: " + config.getName()
                 );
-            
+
             case "JSON":
                 throw new UnsupportedOperationException(
-                    "JSON reader not yet implemented for source: " + config.getName()
+                        "JSON reader not yet implemented for source: " + config.getName()
                 );
-            
+
             case "XML":
                 throw new UnsupportedOperationException(
-                    "XML reader not yet implemented for source: " + config.getName()
+                        "XML reader not yet implemented for source: " + config.getName()
                 );
-            
+
             default:
                 String errorMsg = String.format(
-                    "Unsupported source type '%s' for source: %s. Supported types: CSV",
-                    type, config.getName()
+                        "Unsupported source type '%s' for source: %s. Supported types: CSV",
+                        type, config.getName()
                 );
                 log.error(errorMsg);
                 throw new IllegalArgumentException(errorMsg);

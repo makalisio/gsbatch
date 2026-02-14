@@ -22,6 +22,9 @@ public class GenericItemProcessorFactory {
 
     private final ApplicationContext applicationContext;
 
+    /**
+     * @param applicationContext le contexte Spring pour trouver les beans métier
+     */
     public GenericItemProcessorFactory(ApplicationContext applicationContext) {
         this.applicationContext = applicationContext;
         log.info("GenericItemProcessorFactory initialized");
@@ -60,8 +63,8 @@ public class GenericItemProcessorFactory {
 
         if (!(bean instanceof ItemProcessor)) {
             String errorMsg = String.format(
-                "Bean '%s' exists but is not an ItemProcessor. Actual type: %s",
-                beanName, bean.getClass().getName()
+                    "Bean '%s' exists but is not an ItemProcessor. Actual type: %s",
+                    beanName, bean.getClass().getName()
             );
             log.error(errorMsg);
             throw new IllegalStateException(errorMsg);
@@ -70,8 +73,8 @@ public class GenericItemProcessorFactory {
         log.info("Using custom processor bean '{}' for source '{}'", beanName, sourceName);
 
         @SuppressWarnings("unchecked")
-        ItemProcessor<GenericRecord, GenericRecord> processor = 
-            (ItemProcessor<GenericRecord, GenericRecord>) bean;
+        ItemProcessor<GenericRecord, GenericRecord> processor =
+                (ItemProcessor<GenericRecord, GenericRecord>) bean;
 
         return processor;
     }

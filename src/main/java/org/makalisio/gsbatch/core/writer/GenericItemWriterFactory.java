@@ -22,6 +22,9 @@ public class GenericItemWriterFactory {
 
     private final ApplicationContext applicationContext;
 
+    /**
+     * @param applicationContext le contexte Spring pour trouver les beans métier
+     */
     public GenericItemWriterFactory(ApplicationContext applicationContext) {
         this.applicationContext = applicationContext;
         log.info("GenericItemWriterFactory initialized");
@@ -48,9 +51,9 @@ public class GenericItemWriterFactory {
 
         if (!applicationContext.containsBean(beanName)) {
             String errorMsg = String.format(
-                "No writer bean found for source '%s'. Expected bean name: '%s'. " +
-                "Please create a @Bean or @Component named '%s' that implements ItemWriter<GenericRecord>.",
-                sourceName, beanName, beanName
+                    "No writer bean found for source '%s'. Expected bean name: '%s'. " +
+                            "Please create a @Bean or @Component named '%s' that implements ItemWriter<GenericRecord>.",
+                    sourceName, beanName, beanName
             );
             log.error(errorMsg);
             throw new IllegalStateException(errorMsg);
@@ -60,9 +63,9 @@ public class GenericItemWriterFactory {
 
         if (!(bean instanceof ItemWriter)) {
             String errorMsg = String.format(
-                "Bean '%s' exists but is not an ItemWriter. Actual type: %s. " +
-                "The bean must implement ItemWriter<GenericRecord>.",
-                beanName, bean.getClass().getName()
+                    "Bean '%s' exists but is not an ItemWriter. Actual type: %s. " +
+                            "The bean must implement ItemWriter<GenericRecord>.",
+                    beanName, bean.getClass().getName()
             );
             log.error(errorMsg);
             throw new IllegalStateException(errorMsg);
