@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <springProperty scope="context" name="appName"  source="spring.application.name" defaultValue="gsbatch"/>
+    <springProperty scope="context" name="logLevel" source="logging.level.root"       defaultValue="INFO"/>
+
+    <!-- ── Console ─────────────────────────────────────────────────────────── -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <charset>UTF-8</charset>
+            <pattern>
+                %d{yyyy-MM-dd HH:mm:ss.SSS}
+                %highlight(%-5level)
+                %cyan([%15.15t])
+                %yellow(%-40.40logger{39}) : %msg%n
+            </pattern>
+        </encoder>
+    </appender>
+
+    <!-- ── Fichier (rotation date + taille) ───────────────────────────────── -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+
+        <file>logs/${appName}.log</file>
+
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <charset>UTF-8</charset>
+            <pattern>
+                %d{yyyy-MM-dd HH:mm:ss.SSS}
+                %-5level [%t] %-40.40logger{39} : %msg%n
+            </pattern>
+        </encoder>
+
+        <!-- IMPORTANT : remplacement complet de l'ancienne policy -->
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+
+            <!-- rotation quotidienne + index -->
+            <fileNamePattern>
+                logs/${appName}-%d{yyyy-MM-dd}.%i.log
+            </fileNamePattern>
+
+            <!-- taille max d’un fichier -->
+            <maxFileSize>50MB</maxFileSize>
+
+            <!-- conservation en jours -->
+            <maxHistory>30</maxHistory>
+
+            <!-- taille totale max des archives -->
+            <totalSizeCap>5GB</totalSizeCap>
+
+        </rollingPolicy>
+
+    </appender>
+
+    <!-- ── Niveaux par package ─────────────────────────────────────────────── -->
+    <logger name="org.makalisio.gsbatch"    level="DEBUG"/>
+    <logger name="org.springframework.batch" level="INFO"/>
+    <logger name="org.springframework.jdbc"  level="INFO"/>
+    <logger name="org.springframework"       level="WARN"/>
+    <logger name="com.zaxxer.hikari"         level="WARN"/>
+    <logger name="oracle"                    level="WARN"/>
+
+    <root level="${logLevel}">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+
+</configuration>

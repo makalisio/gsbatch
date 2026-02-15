@@ -88,13 +88,13 @@ public class SqlGenericItemReaderBuilder {
      */
     public JdbcCursorItemReader<GenericRecord> build(SourceConfig config,
                                                       Map<String, Object> jobParameters) {
-        log.info("Building SQL reader for source '{}' — file: {}/{}",
+        log.info("Building SQL reader for source '{}' - file: {}/{}",
                 config.getName(), config.getSqlDirectory(), config.getSqlFile());
 
         // ── 1. Charger le SQL + résoudre les bind variables ──────────────────
         SqlFileLoader.LoadedSql loadedSql = sqlFileLoader.load(config, jobParameters);
 
-        log.info("Source '{}' — SQL prêt, {} bind variable(s) : {}",
+        log.info("Source '{}' - SQL prêt, {} bind variable(s) : {}",
                 config.getName(),
                 loadedSql.getParameterNames().size(),
                 loadedSql.getParameterNames());
@@ -119,7 +119,7 @@ public class SqlGenericItemReaderBuilder {
             builder.preparedStatementSetter(loadedSql.getPreparedStatementSetter());
         }
 
-        log.debug("Source '{}' — JdbcCursorItemReader construit (fetchSize={})",
+        log.debug("Source '{}' - JdbcCursorItemReader construit (fetchSize={})",
                 config.getName(), config.getEffectiveFetchSize());
 
         return builder.build();
@@ -137,11 +137,11 @@ public class SqlGenericItemReaderBuilder {
     private RowMapper<GenericRecord> buildRowMapper(SourceConfig config) {
         boolean hasExplicitColumns = config.getColumns() != null && !config.getColumns().isEmpty();
         if (hasExplicitColumns) {
-            log.debug("Source '{}' — mapping explicite ({} colonnes)",
+            log.debug("Source '{}' - mapping explicite ({} colonnes)",
                     config.getName(), config.getColumns().size());
             return new ExplicitColumnRowMapper(config.getColumns());
         }
-        log.debug("Source '{}' — mapping automatique (métadonnées JDBC)", config.getName());
+        log.debug("Source '{}' - mapping automatique (métadonnées JDBC)", config.getName());
         return new AutoColumnRowMapper();
     }
 
@@ -202,10 +202,10 @@ public class SqlGenericItemReaderBuilder {
     private DataSource resolveDataSource(SourceConfig config) {
         String beanName = config.getDataSourceBean();
         if (beanName != null && !beanName.isBlank()) {
-            log.debug("Source '{}' — DataSource nommée : '{}'", config.getName(), beanName);
+            log.debug("Source '{}' - DataSource nommée : '{}'", config.getName(), beanName);
             return beanFactory.getBean(beanName, DataSource.class);
         }
-        log.debug("Source '{}' — DataSource principale", config.getName());
+        log.debug("Source '{}' - DataSource principale", config.getName());
         return defaultDataSource;
     }
 }

@@ -96,6 +96,37 @@ public class SourceConfig {
         return fetchSize != null && fetchSize > 0 ? fetchSize : 1000;
     }
 
+    // ── STEPS PRE/POST PROCESSING ────────────────────────────────────────────
+
+    /**
+     * Configuration de la step de pre-processing (optionnelle).
+     * Exécutée avant la step de lecture/écriture chunk.
+     */
+    private StepConfig preprocessing = new StepConfig();
+
+    /**
+     * Configuration de la step de post-processing (optionnelle).
+     * Exécutée après la step de lecture/écriture chunk.
+     */
+    private StepConfig postprocessing = new StepConfig();
+
+    // ── WRITER GÉNÉRIQUE ─────────────────────────────────────────────────────
+
+    /**
+     * Configuration du writer.
+     * Si absent, le framework cherche un bean "{sourceName}Writer" dans le contexte Spring.
+     */
+    private WriterConfig writer;
+
+    /**
+     * Indique si le writer est configuré de manière déclarative dans le YAML.
+     *
+     * @return {@code true} si {@code writer} est défini
+     */
+    public boolean hasWriterConfig() {
+        return writer != null;
+    }
+
     /**
      * Gets the chunk size, returning 1000 if not configured.
      *
@@ -163,6 +194,19 @@ public class SourceConfig {
         
         if (chunkSize != null && chunkSize <= 0) {
             throw new IllegalStateException("Chunk size must be positive for source: " + name);
+        }
+
+        // ── Validation pre/post processing ───────────────────────────────────
+        if (preprocessing != null) {
+            preprocessing.validate("preprocessing");
+        }
+        if (postprocessing != null) {
+            postprocessing.validate("postprocessing");
+        }
+
+        // ── Validation writer déclaratif ─────────────────────────────────────
+        if (writer != null) {
+            writer.validate();
         }
     }
 }
