@@ -35,26 +35,66 @@ public class SourceConfig {
      */
     private Integer chunkSize;
 
-    // CSV-specific properties
-    /**
-     * File path for CSV sources
-     */
+    // ── CSV ──────────────────────────────────────────────────────────────────
+
+    /** Chemin vers le fichier CSV */
     private String path;
 
-    /**
-     * CSV delimiter (default: ";")
-     */
+    /** Délimiteur CSV (défaut : ";") */
     private String delimiter = ";";
 
-    /**
-     * Whether to skip the header row (default: true)
-     */
+    /** Ignorer la ligne d'en-tête (défaut : true) */
     private boolean skipHeader = true;
 
-    /**
-     * List of column configurations
-     */
+    /** Liste des colonnes */
     private List<ColumnConfig> columns = new ArrayList<>();
+
+    // ── SQL ──────────────────────────────────────────────────────────────────
+
+    /**
+     * Répertoire contenant les fichiers SQL.
+     * Peut être absolu (ex : /data/sql) ou relatif au classpath.
+     * Exemple : /opt/batch/sql  ou  D:/work/sql
+     */
+    private String sqlDirectory;
+
+    /**
+     * Nom du fichier SQL dans le sqlDirectory.
+     * Exemple : orders_new.sql
+     *
+     * Le fichier peut contenir des variables bindées de la forme :paramName
+     * dont les valeurs sont transmises via les jobParameters.
+     *
+     * Exemple :
+     *   SELECT * FROM ORDERS
+     *   WHERE status = :status
+     *     AND trade_date = :process_date
+     *
+     * Lancement : java -jar app.jar sourceName=orders status=NEW process_date=2024-01-15
+     */
+    private String sqlFile;
+
+    /**
+     * Nombre de lignes chargées par batch JDBC (fetchSize).
+     * Impacte la mémoire et les performances. Défaut : 1000.
+     */
+    private Integer fetchSize;
+
+    /**
+     * Bean name de la DataSource à utiliser si plusieurs sources de données
+     * sont déclarées dans le backoffice. Optionnel — utilise la DataSource
+     * principale par défaut.
+     */
+    private String dataSourceBean;
+
+    /**
+     * Retourne le fetchSize, avec 1000 comme valeur par défaut.
+     *
+     * @return fetchSize effectif
+     */
+    public int getEffectiveFetchSize() {
+        return fetchSize != null && fetchSize > 0 ? fetchSize : 1000;
+    }
 
     /**
      * Gets the chunk size, returning 1000 if not configured.
@@ -93,7 +133,7 @@ public class SourceConfig {
             throw new IllegalStateException("Source type is required for source: " + name);
         }
 
-        // CSV-specific validation
+        // ── Validation CSV ───────────────────────────────────────────────────
         if ("CSV".equalsIgnoreCase(type)) {
             if (path == null || path.isBlank()) {
                 throw new IllegalStateException("Path is required for CSV source: " + name);
@@ -101,7 +141,6 @@ public class SourceConfig {
             if (columns == null || columns.isEmpty()) {
                 throw new IllegalStateException("Columns configuration is required for CSV source: " + name);
             }
-            // Validate each column
             for (int i = 0; i < columns.size(); i++) {
                 ColumnConfig col = columns.get(i);
                 if (col.getName() == null || col.getName().isBlank()) {
@@ -109,6 +148,16 @@ public class SourceConfig {
                         String.format("Column name is required at index %d for source: %s", i, name)
                     );
                 }
+            }
+        }
+
+        // ── Validation SQL ───────────────────────────────────────────────────
+        if ("SQL".equalsIgnoreCase(type)) {
+            if (sqlDirectory == null || sqlDirectory.isBlank()) {
+                throw new IllegalStateException("sqlDirectory is required for SQL source: " + name);
+            }
+            if (sqlFile == null || sqlFile.isBlank()) {
+                throw new IllegalStateException("sqlFile is required for SQL source: " + name);
             }
         }
         

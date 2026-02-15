@@ -16,6 +16,8 @@ import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.ItemStreamReader;
+import java.util.Collections;
+import java.util.Map;
 import org.springframework.batch.item.ItemWriter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -147,19 +149,24 @@ public class GenericIngestionJobConfig {
 
     /**
      * Reader générique, créé au démarrage du step (StepScope).
-     * Le sourceName est résolu depuis les jobParameters.
      *
-     * @param sourceName le nom de la source (depuis jobParameters)
+     * <p>Tous les jobParameters sont injectés et transmis à la factory :
+     * pour les sources SQL, ils servent à résoudre les bind variables
+     * {@code :paramName} du fichier SQL.</p>
+     *
+     * @param sourceName    le nom de la source (depuis jobParameters)
+     * @param jobParameters tous les paramètres du job (pour les bind variables SQL)
      * @return le reader configuré pour la source (ItemStreamReader = ItemReader + ItemStream)
      */
     @Bean
     @StepScope
     public ItemStreamReader<GenericRecord> genericIngestionReader(
-            @Value("#{jobParameters['sourceName']}") String sourceName) {
+            @Value("#{jobParameters['sourceName']}") String sourceName,
+            @Value("#{jobParameters}") Map<String, Object> jobParameters) {
 
-        log.debug("Creating reader for source: {}", sourceName);
+        log.debug("Creating reader for source: {} with {} jobParameters", sourceName, jobParameters.size());
         SourceConfig config = configLoader.load(sourceName);
-        return readerFactory.buildReader(config);
+        return readerFactory.buildReader(config, Collections.unmodifiableMap(jobParameters));
     }
 
     /**
