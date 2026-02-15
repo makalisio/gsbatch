@@ -45,8 +45,8 @@ public class StepConfig {
      * Execution type: {@code SQL} or {@code JAVA}.
      *
      * <ul>
-     *   <li>{@code SQL}  – executes the SQL file at {@code sqlDirectory/sqlFile}</li>
-     *   <li>{@code JAVA} – delegates to the Spring bean named {@code beanName} (must implement {@code Tasklet})</li>
+     *   <li>{@code SQL}  - executes the SQL file at {@code sqlDirectory/sqlFile}</li>
+     *   <li>{@code JAVA} - delegates to the Spring bean named {@code beanName} (must implement {@code Tasklet})</li>
      * </ul>
      */
     private String type;

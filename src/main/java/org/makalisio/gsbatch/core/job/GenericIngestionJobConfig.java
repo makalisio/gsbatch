@@ -39,10 +39,10 @@ import java.util.Map;
  * <h2>Bean lifecycle</h2>
  * <pre>
  *   Application startup
- *     └─ genericIngestionJob              (Singleton)
- *          ├─ genericPreprocessingStep    (@JobScope — no-op if disabled)
- *          ├─ genericIngestionStep        (@JobScope — chunk reader/processor/writer)
- *          └─ genericPostprocessingStep   (@JobScope — no-op if disabled)
+ *     └- genericIngestionJob              (Singleton)
+ *          ├- genericPreprocessingStep    (@JobScope - no-op if disabled)
+ *          ├- genericIngestionStep        (@JobScope - chunk reader/processor/writer)
+ *          └- genericPostprocessingStep   (@JobScope - no-op if disabled)
  * </pre>
  *
  * <h2>Pre/post processing steps</h2>
@@ -206,7 +206,7 @@ public class GenericIngestionJobConfig {
             WriterConfig writerConfig = config.getWriter();
             if (writerConfig.isSkipOnError()) {
                 int skipLimit = writerConfig.getSkipLimit();
-                log.info("Source '{}' — fault-tolerant mode (onError=SKIP, skipLimit={})",
+                log.info("Source '{}' - fault-tolerant mode (onError=SKIP, skipLimit={})",
                         sourceName, skipLimit);
 
                 FaultTolerantStepBuilder<GenericRecord, GenericRecord> ftBuilder =

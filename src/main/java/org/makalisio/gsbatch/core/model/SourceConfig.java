@@ -82,7 +82,7 @@ public class SourceConfig {
 
     /**
      * Bean name of the DataSource to use when multiple data sources
-     * are declared in the backoffice. Optional — uses the primary DataSource
+     * are declared in the backoffice. Optional - uses the primary DataSource
      * by default.
      */
     private String dataSourceBean;

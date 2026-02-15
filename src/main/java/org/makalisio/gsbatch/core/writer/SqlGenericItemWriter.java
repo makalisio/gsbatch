@@ -60,43 +60,42 @@ public class SqlGenericItemWriter implements ItemWriter<GenericRecord> {
         this.sourceName = sourceName;
         this.namedJdbcTemplate = new NamedParameterJdbcTemplate(dataSource);
 
-        // Load SQL once – NamedParameterJdbcTemplate handles
+        // Load SQL once - NamedParameterJdbcTemplate handles
         // :paramName substitution for each row in the chunk
         this.rawSql = sqlFileLoader.readRawSql(
                 writerConfig.getSqlDirectory(),
                 writerConfig.getSqlFile()
         );
 
-        log.info("Source '{}' – SqlGenericItemWriter initialized from {}/{}",
+        log.info("Source '{}' - SqlGenericItemWriter initialized from {}/{}",
                 sourceName, writerConfig.getSqlDirectory(), writerConfig.getSqlFile());
-        log.debug("Source '{}' – SQL writer: {}", sourceName, abbreviate(rawSql, 200));
+        log.debug("Source '{}' - SQL writer: {}", sourceName, abbreviate(rawSql, 200));
     }
 
     /**
      * Writes a chunk of {@link GenericRecord} via a {@code batchUpdate}.
      *
      * <p>The fields of each {@code GenericRecord} are mapped to the SQL bind variables
-     * ({@code :paramName} → {@code record.get("paramName")}).</p>
+     * ({@code :paramName} -> {@code record.get("paramName")}).</p>
      *
      * <p>The {@code batchUpdate} sends all rows of the chunk in a single
      * JDBC round-trip, which is more efficient than individual INSERTs.</p>
      *
      * @param chunk the chunk of records to persist
-     * @throws Exception on JDBC error (behaviour depends on {@code onError} in the YAML)
      */
     @Override
-    public void write(Chunk<? extends GenericRecord> chunk) throws Exception {
+    public void write(Chunk<? extends GenericRecord> chunk) {
         if (chunk.isEmpty()) {
-            log.debug("Source '{}' – empty chunk, nothing to write", sourceName);
+            log.debug("Source '{}' - empty chunk, nothing to write", sourceName);
             return;
         }
 
-        log.info("Source '{}' – writing {} record(s)", sourceName, chunk.size());
+        log.info("Source '{}' - writing {} record(s)", sourceName, chunk.size());
 
         // Build SqlParameterSource for each record in the chunk
         SqlParameterSource[] batchParams = buildBatchParams(chunk);
 
-        // Execute batchUpdate – single JDBC round-trip for the whole chunk
+        // Execute batchUpdate - single JDBC round-trip for the whole chunk
         int[] rowCounts = namedJdbcTemplate.batchUpdate(rawSql, batchParams);
 
         // Count affected rows
@@ -110,7 +109,7 @@ public class SqlGenericItemWriter implements ItemWriter<GenericRecord> {
             }
         }
 
-        log.info("Source '{}' – chunk written: {} row(s) affected, {} with no info",
+        log.info("Source '{}' - chunk written: {} row(s) affected, {} with no info",
                 sourceName, totalAffected, skipped);
     }
 

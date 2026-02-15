@@ -51,8 +51,8 @@ public class WriterConfig {
      * Writer type: {@code SQL} or {@code JAVA}.
      *
      * <ul>
-     *   <li>{@code SQL}  – executes the SQL file in batch, bind variables = fields of {@code GenericRecord}</li>
-     *   <li>{@code JAVA} – delegates to the Spring bean named {@code beanName} (must implement {@code ItemWriter})</li>
+     *   <li>{@code SQL}  - executes the SQL file in batch, bind variables = fields of {@code GenericRecord}</li>
+     *   <li>{@code JAVA} - delegates to the Spring bean named {@code beanName} (must implement {@code ItemWriter})</li>
      * </ul>
      */
     private String type;
@@ -82,8 +82,8 @@ public class WriterConfig {
      * Behaviour on row error.
      *
      * <ul>
-     *   <li>{@code FAIL} (default) – the job fails immediately on the first error</li>
-     *   <li>{@code SKIP} – the row is skipped, the error is logged, the job continues</li>
+     *   <li>{@code FAIL} (default) - the job fails immediately on the first error</li>
+     *   <li>{@code SKIP} - the row is skipped, the error is logged, the job continues</li>
      * </ul>
      */
     private String onError = "FAIL";
