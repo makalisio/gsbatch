@@ -23,18 +23,18 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Charge et prepare les requetes SQL depuis des fichiers externes.
+ * Loads and prepares SQL queries from external files.
  *
- * <h2>Fonctionnement</h2>
+ * <h2>How it works</h2>
  * <ol>
- *   <li>Lit le fichier {@code {sqlDirectory}/{sqlFile}} defini dans le YAML</li>
- *   <li>Parse les variables bindees de la forme {@code :paramName}</li>
- *   <li>Resout les valeurs depuis les {@code jobParameters}</li>
- *   <li>Genere un SQL executable ({@code ?}) et un {@code PreparedStatementSetter}</li>
+ *   <li>Reads the file {@code {sqlDirectory}/{sqlFile}} defined in the YAML</li>
+ *   <li>Parses bind variables of the form {@code :paramName}</li>
+ *   <li>Resolves values from {@code jobParameters}</li>
+ *   <li>Generates executable SQL ({@code ?}) and a {@code PreparedStatementSetter}</li>
  * </ol>
  *
- * <h2>Format des variables dans le fichier SQL</h2>
- * Les variables utilisent la syntaxe standard Spring {@code :paramName} :
+ * <h2>Variable format in SQL files</h2>
+ * Variables use the standard Spring {@code :paramName} syntax:
  * <pre>
  *   SELECT order_id, customer_id, amount
  *   FROM   ORDERS
@@ -43,15 +43,15 @@ import java.util.regex.Pattern;
  *     AND  desk_code  = :desk
  * </pre>
  *
- * <h2>Passage des valeurs</h2>
- * Via les jobParameters en ligne de commande :
+ * <h2>Passing values</h2>
+ * Via jobParameters on the command line:
  * <pre>
  *   java -jar app.jar sourceName=orders status=NEW process_date=2024-01-15 desk=EQUITY
  * </pre>
  *
- * <h2>Fichiers SQL</h2>
- * Stocker les fichiers dans un repertoire dedie, hors du JAR,
- * afin de pouvoir les modifier sans recompiler l'application :
+ * <h2>SQL files</h2>
+ * Store files in a dedicated directory, outside the JAR,
+ * so they can be modified without recompiling the application:
  * <pre>
  *   /opt/batch/sql/
  *     orders_new.sql
@@ -67,27 +67,27 @@ import java.util.regex.Pattern;
 public class SqlFileLoader {
 
     /**
-     * Regex pour extraire les parametres bindes de la forme {@code :paramName}.
+     * Regex to extract bind parameters of the form {@code :paramName}.
      *
-     * <p>{@code ParsedSql.getParameterNames()} est package-private dans Spring
-     * et ne peut pas etre appele depuis l'exterieur du package
-     * {@code org.springframework.jdbc.core.namedparam}. On extrait donc les noms
-     * de parametres directement depuis le SQL brut via cette regex.</p>
+     * <p>{@code ParsedSql.getParameterNames()} is package-private in Spring
+     * and cannot be called from outside the
+     * {@code org.springframework.jdbc.core.namedparam} package. Parameter names
+     * are therefore extracted directly from the raw SQL via this regex.</p>
      *
-     * <p>La regex ignore {@code ::} (operateur de cast PostgreSQL) et exige
-     * que le nom commence par une lettre.</p>
+     * <p>The regex ignores {@code ::} (PostgreSQL cast operator) and requires
+     * the name to start with a letter.</p>
      */
     private static final Pattern BIND_PARAM_PATTERN =
             Pattern.compile("(?<![:])(:[a-zA-Z][a-zA-Z0-9_]*)");
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  API publique
+    //  Public API
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Resultat du chargement d'un fichier SQL.
-     * Contient le SQL executable (variables {@code :x} remplacees par {@code ?})
-     * et un {@link org.springframework.jdbc.core.PreparedStatementSetter} pret a l'emploi.
+     * Result of loading a SQL file.
+     * Contains the executable SQL (variables {@code :x} replaced by {@code ?})
+     * and a ready-to-use {@link org.springframework.jdbc.core.PreparedStatementSetter}.
      */
     public static class LoadedSql {
 
@@ -104,21 +104,21 @@ public class SqlFileLoader {
         }
 
         /**
-         * @return SQL avec {@code ?} a la place des {@code :paramName}
+         * @return SQL with {@code ?} in place of {@code :paramName}
          */
         public String getExecutableSql() {
             return executableSql;
         }
 
         /**
-         * @return setter a passer a {@code JdbcCursorItemReaderBuilder.preparedStatementSetter()}
+         * @return setter to pass to {@code JdbcCursorItemReaderBuilder.preparedStatementSetter()}
          */
         public org.springframework.jdbc.core.PreparedStatementSetter getPreparedStatementSetter() {
             return preparedStatementSetter;
         }
 
         /**
-         * @return liste ordonnee des noms de parametres trouves dans le SQL
+         * @return ordered list of parameter names found in the SQL
          */
         public List<String> getParameterNames() {
             return parameterNames;
@@ -126,67 +126,67 @@ public class SqlFileLoader {
     }
 
     /**
-     * Charge un fichier SQL, resout les variables depuis les jobParameters
-     * et retourne un {@link LoadedSql} pret pour le {@link org.springframework.batch.item.database.JdbcCursorItemReader}.
+     * Loads a SQL file, resolves variables from jobParameters,
+     * and returns a {@link LoadedSql} ready for the {@link org.springframework.batch.item.database.JdbcCursorItemReader}.
      *
-     * @param config        la configuration YAML de la source
-     * @param jobParameters tous les parametres du job (Map String → Object)
-     * @return le SQL executable + le PreparedStatementSetter
-     * @throws SqlFileException si le fichier est introuvable, illisible ou si un parametre est manquant
+     * @param config        the YAML source configuration
+     * @param jobParameters all job parameters (Map String → Object)
+     * @return the executable SQL + the PreparedStatementSetter
+     * @throws SqlFileException if the file is not found, unreadable, or a parameter is missing
      */
     public LoadedSql load(SourceConfig config, Map<String, Object> jobParameters) {
 
-        // ── 1. Localiser et lire le fichier SQL ──────────────────────────────
+        // ── 1. Locate and read the SQL file ──────────────────────────────────
         Path sqlPath = resolvePath(config);
         String rawSql = readFile(sqlPath, config);
 
-        log.debug("Source '{}'  - SQL brut charge depuis {} :\n{}", config.getName(), sqlPath, rawSql);
+        log.debug("Source '{}'  - raw SQL loaded from {} :\n{}", config.getName(), sqlPath, rawSql);
 
-        // ── 2. Parser les variables :paramName ───────────────────────────────
-        // Extraction via regex car ParsedSql.getParameterNames() est package-private
+        // ── 2. Parse :paramName variables ────────────────────────────────────
+        // Extracted via regex because ParsedSql.getParameterNames() is package-private
         List<String> paramNames = extractParamNames(rawSql);
-        // ParsedSql utilise uniquement pour substituteNamedParameters et buildValueArray (API publique)
+        // ParsedSql used only for substituteNamedParameters and buildValueArray (public API)
         ParsedSql parsedSql = NamedParameterUtils.parseSqlStatement(rawSql);
 
-        log.info("Source '{}'  - {} variable(s) bindee(s) trouvee(s) : {}",
+        log.info("Source '{}'  - {} bound variable(s) found: {}",
                 config.getName(), paramNames.size(), paramNames);
 
-        // ── 3. Resoudre les valeurs depuis jobParameters ──────────────────────
+        // ── 3. Resolve values from jobParameters ─────────────────────────────
         MapSqlParameterSource paramSource = resolveParameters(paramNames, jobParameters, config);
 
-        // ── 4. Generer le SQL executable (? a la place de :paramName) ────────
+        // ── 4. Generate executable SQL (? in place of :paramName) ────────────
         String executableSql = NamedParameterUtils.substituteNamedParameters(parsedSql, paramSource);
         Object[] values = NamedParameterUtils.buildValueArray(parsedSql, paramSource, null);
 
-        log.debug("Source '{}'  - SQL executable :\n{}", config.getName(), executableSql);
-        log.debug("Source '{}'  - Valeurs des parametres : {}", config.getName(),
+        log.debug("Source '{}'  - executable SQL :\n{}", config.getName(), executableSql);
+        log.debug("Source '{}'  - parameter values: {}", config.getName(),
                 buildParamLog(paramNames, values));
 
-        // ── 5. Construire le PreparedStatementSetter ─────────────────────────
+        // ── 5. Build the PreparedStatementSetter ─────────────────────────────
         org.springframework.jdbc.core.PreparedStatementSetter setter = buildSetter(values, paramNames, config);
 
         return new LoadedSql(executableSql, setter, paramNames);
     }
 
     /**
-     * Charge un fichier SQL contenant plusieurs instructions (pre/post processing).
+     * Loads a SQL file containing multiple statements (pre/post processing).
      *
-     * <p>Chaque instruction est delimitee par {@code ;}.
-     * Toutes les instructions partagent les memes {@code jobParameters} comme bind variables.
-     * L'appelant est responsable de les executer dans la meme transaction.</p>
+     * <p>Each statement is delimited by {@code ;}.
+     * All statements share the same {@code jobParameters} as bind variables.
+     * The caller is responsible for executing them within the same transaction.</p>
      *
-     * @param sqlDirectory repertoire contenant le fichier SQL
-     * @param sqlFile      nom du fichier SQL
-     * @param parameters   parametres a binder (jobParameters)
-     * @return liste ordonnee des instructions pretes a executer
-     * @throws SqlFileException si le fichier est introuvable ou un parametre manque
+     * @param sqlDirectory directory containing the SQL file
+     * @param sqlFile      name of the SQL file
+     * @param parameters   parameters to bind (jobParameters)
+     * @return ordered list of statements ready to execute
+     * @throws SqlFileException if the file is not found or a parameter is missing
      */
     public List<LoadedSql> loadStatements(String sqlDirectory, String sqlFile,
                                           Map<String, Object> parameters) {
         Path path = Paths.get(sqlDirectory, sqlFile);
         String rawContent = readFileContent(path, sqlDirectory, sqlFile);
 
-        // Decouper par ";" en fin d'instruction (ignore les ";" dans les chaines)
+        // Split by ";" at end of statement (ignores ";" inside strings)
         String[] rawStatements = rawContent.split(";\s*(?=\n|\r|$)");
 
         List<LoadedSql> result = new ArrayList<>();
@@ -207,21 +207,21 @@ public class SqlFileLoader {
             result.add(new LoadedSql(executableSql, setter, paramNames));
         }
 
-        log.info("Fichier SQL '{}/{}' : {} instruction(s) chargee(s)", sqlDirectory, sqlFile, result.size());
+        log.info("SQL file '{}/{}': {} statement(s) loaded", sqlDirectory, sqlFile, result.size());
         return result;
     }
 
     /**
-     * Lit le SQL brut d'un fichier sans substitution de variables.
+     * Reads the raw SQL from a file without variable substitution.
      *
-     * <p>Utilise par le writer SQL : le SQL brut (avec {@code :paramName}) est passe
-     * directement a {@code NamedParameterJdbcTemplate.batchUpdate()},
-     * qui gere la substitution pour chaque ligne du chunk.</p>
+     * <p>Used by the SQL writer: the raw SQL (with {@code :paramName}) is passed
+     * directly to {@code NamedParameterJdbcTemplate.batchUpdate()},
+     * which handles substitution for each row in the chunk.</p>
      *
-     * @param sqlDirectory repertoire contenant le fichier SQL
-     * @param sqlFile      nom du fichier SQL
-     * @return contenu SQL nettoye (commentaires supprimes)
-     * @throws SqlFileException si le fichier est introuvable ou illisible
+     * @param sqlDirectory directory containing the SQL file
+     * @param sqlFile      name of the SQL file
+     * @return cleaned SQL content (comments removed)
+     * @throws SqlFileException if the file is not found or unreadable
      */
     public String readRawSql(String sqlDirectory, String sqlFile) {
         Path path = Paths.get(sqlDirectory, sqlFile);
@@ -229,46 +229,46 @@ public class SqlFileLoader {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Implementation privee
+    //  Private implementation
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Resout le chemin absolu du fichier SQL.
+     * Resolves the absolute path of the SQL file.
      */
     private Path resolvePath(SourceConfig config) {
         Path path = Paths.get(config.getSqlDirectory(), config.getSqlFile());
-        log.debug("Source '{}'  - chemin SQL resolu : {}", config.getName(), path.toAbsolutePath());
+        log.debug("Source '{}'  - resolved SQL path: {}", config.getName(), path.toAbsolutePath());
         return path;
     }
 
     /**
-     * Lit le contenu du fichier SQL en UTF-8 (delegation vers la methode generique).
+     * Reads the SQL file content in UTF-8 (delegates to the generic method).
      */
     private String readFile(Path path, SourceConfig config) {
         return readFileContent(path, config.getSqlDirectory(), config.getSqlFile());
     }
 
     /**
-     * Lit le contenu du fichier SQL en UTF-8.
-     * Supprime les commentaires {@code -- ...} de fin de ligne pour eviter
-     * de les transmettre au driver JDBC.
+     * Reads the SQL file content in UTF-8.
+     * Removes {@code -- ...} end-of-line comments to avoid
+     * passing them to the JDBC driver.
      *
-     * @param path         chemin resolu du fichier
-     * @param sqlDirectory repertoire (pour les messages d'erreur)
-     * @param sqlFile      nom du fichier (pour les messages d'erreur)
-     * @return contenu SQL nettoye
+     * @param path         resolved path of the file
+     * @param sqlDirectory directory (for error messages)
+     * @param sqlFile      file name (for error messages)
+     * @return cleaned SQL content
      */
     private String readFileContent(Path path, String sqlDirectory, String sqlFile) {
         if (!Files.exists(path)) {
             throw new SqlFileException(String.format(
-                    "Fichier SQL introuvable : %s%n" +
-                            "Verifiez sqlDirectory='%s' et sqlFile='%s'.",
+                    "SQL file not found: %s%n" +
+                            "Check sqlDirectory='%s' and sqlFile='%s'.",
                     path.toAbsolutePath(), sqlDirectory, sqlFile
             ));
         }
         if (!Files.isReadable(path)) {
             throw new SqlFileException(String.format(
-                    "Fichier SQL non lisible : %s", path.toAbsolutePath()
+                    "SQL file is not readable: %s", path.toAbsolutePath()
             ));
         }
 
@@ -277,40 +277,40 @@ public class SqlFileLoader {
             fileContent = fileContent.replaceAll("--[^\n]*", "").trim();
             if (fileContent.isBlank()) {
                 throw new SqlFileException(
-                        "Fichier SQL vide ou ne contenant que des commentaires : " + path);
+                        "SQL file is empty or contains only comments: " + path);
             }
-            log.info("Fichier SQL charge : {} ({} caracteres)", path.getFileName(), fileContent.length());
+            log.info("SQL file loaded: {} ({} characters)", path.getFileName(), fileContent.length());
             return fileContent;
         } catch (IOException e) {
-            throw new SqlFileException("Impossible de lire le fichier SQL : " + path, e);
+            throw new SqlFileException("Unable to read SQL file: " + path, e);
         }
     }
 
     /**
-     * Extrait les noms de parametres bindes (forme {@code :paramName}) depuis le SQL brut.
+     * Extracts bound parameter names (form {@code :paramName}) from raw SQL.
      *
-     * <p>Utilise une regex car {@code ParsedSql.getParameterNames()} est package-private.</p>
+     * <p>Uses a regex because {@code ParsedSql.getParameterNames()} is package-private.</p>
      *
-     * <p>L'ordre des noms est preserve (ordre d'apparition dans le SQL).
-     * Les doublons sont supprimes (un meme param peut apparaitre plusieurs fois).</p>
+     * <p>The order of names is preserved (order of appearance in the SQL).
+     * Duplicates are removed (the same parameter may appear multiple times).</p>
      *
-     * @param sql le SQL brut (avec les {@code :paramName})
-     * @return liste ordonnee et dedupliquee des noms de parametres
+     * @param sql the raw SQL (with {@code :paramName})
+     * @return ordered and deduplicated list of parameter names
      */
     private List<String> extractParamNames(String sql) {
-        // LinkedHashSet : deduplique tout en preservant l'ordre d'insertion
+        // LinkedHashSet: deduplicates while preserving insertion order
         LinkedHashSet<String> names = new LinkedHashSet<>();
         Matcher matcher = BIND_PARAM_PATTERN.matcher(sql);
         while (matcher.find()) {
-            // matcher.group(1) contient ":paramName", on retire le ":"
+            // matcher.group(1) contains ":paramName", we strip the ":"
             names.add(matcher.group(1).substring(1));
         }
         return Collections.unmodifiableList(new ArrayList<>(names));
     }
 
     /**
-     * Resout les valeurs des parametres depuis les jobParameters.
-     * Verifie que chaque variable bindee a bien une valeur transmise.
+     * Resolves parameter values from jobParameters.
+     * Verifies that every bound variable has a corresponding value.
      */
     private MapSqlParameterSource resolveParameters(List<String> paramNames,
                                                     Map<String, Object> parameters,
@@ -319,7 +319,7 @@ public class SqlFileLoader {
     }
 
     /**
-     * Resout les valeurs des parametres (version generique par identifiant).
+     * Resolves parameter values (generic version by identifier).
      */
     private MapSqlParameterSource resolveParameters(List<String> paramNames,
                                                     Map<String, Object> parameters,
@@ -329,9 +329,9 @@ public class SqlFileLoader {
         for (String paramName : paramNames) {
             if (!parameters.containsKey(paramName)) {
                 throw new SqlFileException(String.format(
-                        "Parametre binde manquant [%s] : ':%s'%n" +
-                                "Parametres disponibles : %s%n" +
-                                "Ajoutez-le a la commande : java -jar app.jar %s=<valeur>",
+                        "Missing bound parameter [%s]: ':%s'%n" +
+                                "Available parameters: %s%n" +
+                                "Add it to the command: java -jar app.jar %s=<value>",
                         identifier, paramName,
                         parameters.keySet(),
                         paramName
@@ -339,14 +339,14 @@ public class SqlFileLoader {
             }
             Object value = parameters.get(paramName);
             paramSource.addValue(paramName, value);
-            log.debug("[{}] parametre resolu : :{} = '{}'", identifier, paramName, value);
+            log.debug("[{}] resolved parameter: :{} = '{}'", identifier, paramName, value);
         }
 
         return paramSource;
     }
 
     /**
-     * Construit un PreparedStatementSetter (version SourceConfig).
+     * Builds a PreparedStatementSetter (SourceConfig version).
      */
     private org.springframework.jdbc.core.PreparedStatementSetter buildSetter(
             Object[] values, List<String> paramNames, SourceConfig config) {
@@ -354,8 +354,8 @@ public class SqlFileLoader {
     }
 
     /**
-     * Construit un PreparedStatementSetter a partir du tableau de valeurs.
-     * Utilise {@code setObject} pour laisser le driver JDBC inferer les types SQL.
+     * Builds a PreparedStatementSetter from the values array.
+     * Uses {@code setObject} to let the JDBC driver infer SQL types.
      */
     private org.springframework.jdbc.core.PreparedStatementSetter buildSetter(
             Object[] values, List<String> paramNames, String identifier) {
@@ -366,7 +366,7 @@ public class SqlFileLoader {
                     ps.setObject(i + 1, values[i]);
                 } catch (SQLException e) {
                     throw new SQLException(String.format(
-                            "Erreur binding parametre [%d] ':%s' = '%s' [%s] : %s",
+                            "Error binding parameter [%d] ':%s' = '%s' [%s]: %s",
                             i + 1, paramNames.get(i), values[i], identifier, e.getMessage()
                     ), e);
                 }
@@ -375,7 +375,7 @@ public class SqlFileLoader {
     }
 
     /**
-     * Construit un log lisible des parametres (masque les valeurs longues).
+     * Builds a readable log of parameters (masks long values).
      */
     private String buildParamLog(List<String> names, Object[] values) {
         StringBuilder sb = new StringBuilder("{");
@@ -389,24 +389,24 @@ public class SqlFileLoader {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Exception dediee
+    //  Dedicated exception
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Exception levee lors du chargement ou de la resolution d'un fichier SQL.
+     * Exception thrown when loading or resolving a SQL file fails.
      */
     public static class SqlFileException extends RuntimeException {
 
         /**
-         * @param message description de l'erreur
+         * @param message description of the error
          */
         public SqlFileException(String message) {
             super(message);
         }
 
         /**
-         * @param message description de l'erreur
-         * @param cause   cause originale
+         * @param message description of the error
+         * @param cause   original cause
          */
         public SqlFileException(String message, Throwable cause) {
             super(message, cause);

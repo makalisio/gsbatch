@@ -15,13 +15,13 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Writer générique piloté par un fichier SQL externe.
+ * Generic writer driven by an external SQL file.
  *
- * <p>Charge le SQL une seule fois à la construction, puis pour chaque chunk
- * exécute un {@code batchUpdate} en utilisant les champs du {@link GenericRecord}
- * comme bind variables.</p>
+ * <p>Loads the SQL once at construction time, then for each chunk
+ * executes a {@code batchUpdate} using the {@link GenericRecord} fields
+ * as bind variables.</p>
  *
- * <h2>Exemple de fichier SQL</h2>
+ * <h2>Example SQL file</h2>
  * <pre>
  * INSERT INTO ORDERS_PROCESSED
  *   (order_id, customer_id, amount, tva_amount, total_ttc, currency, status)
@@ -29,13 +29,13 @@ import java.util.List;
  *   (:order_id, :customer_id, :amount, :tva_amount, :total_ttc, :currency, :status)
  * </pre>
  *
- * <p>Les noms des bind variables ({@code :paramName}) doivent correspondre
- * aux clés du {@code GenericRecord} retourné par le processor.</p>
+ * <p>The bind variable names ({@code :paramName}) must match
+ * the keys of the {@code GenericRecord} returned by the processor.</p>
  *
- * <h2>Gestion des erreurs</h2>
- * <p>Le comportement en cas d'erreur est configuré dans le YAML via
- * {@code writer.onError} (FAIL ou SKIP) et géré par Spring Batch
- * au niveau du Step via {@code faultTolerant().skip().skipLimit()}.</p>
+ * <h2>Error handling</h2>
+ * <p>Error behaviour is configured in the YAML via
+ * {@code writer.onError} (FAIL or SKIP) and managed by Spring Batch
+ * at the Step level via {@code faultTolerant().skip().skipLimit()}.</p>
  *
  * @author Makalisio
  * @since 0.0.1
@@ -48,10 +48,10 @@ public class SqlGenericItemWriter implements ItemWriter<GenericRecord> {
     private final String sourceName;
 
     /**
-     * @param writerConfig  configuration du writer (sqlDirectory, sqlFile)
-     * @param sqlFileLoader loader pour lire le fichier SQL
-     * @param dataSource    DataSource à utiliser
-     * @param sourceName    nom de la source (pour les logs)
+     * @param writerConfig  writer configuration (sqlDirectory, sqlFile)
+     * @param sqlFileLoader loader for reading the SQL file
+     * @param dataSource    DataSource to use
+     * @param sourceName    source name (for logging)
      */
     public SqlGenericItemWriter(WriterConfig writerConfig,
                                 SqlFileLoader sqlFileLoader,
@@ -60,57 +60,57 @@ public class SqlGenericItemWriter implements ItemWriter<GenericRecord> {
         this.sourceName = sourceName;
         this.namedJdbcTemplate = new NamedParameterJdbcTemplate(dataSource);
 
-        // Charge le SQL une seule fois — NamedParameterJdbcTemplate gère
-        // la substitution des :paramName pour chaque ligne du chunk
+        // Load SQL once – NamedParameterJdbcTemplate handles
+        // :paramName substitution for each row in the chunk
         this.rawSql = sqlFileLoader.readRawSql(
                 writerConfig.getSqlDirectory(),
                 writerConfig.getSqlFile()
         );
 
-        log.info("Source '{}' — SqlGenericItemWriter initialisé depuis {}/{}",
+        log.info("Source '{}' – SqlGenericItemWriter initialized from {}/{}",
                 sourceName, writerConfig.getSqlDirectory(), writerConfig.getSqlFile());
-        log.debug("Source '{}' — SQL writer : {}", sourceName, abbreviate(rawSql, 200));
+        log.debug("Source '{}' – SQL writer: {}", sourceName, abbreviate(rawSql, 200));
     }
 
     /**
-     * Écrit un chunk de {@link GenericRecord} via un {@code batchUpdate}.
+     * Writes a chunk of {@link GenericRecord} via a {@code batchUpdate}.
      *
-     * <p>Les champs de chaque {@code GenericRecord} sont mappés aux bind variables
-     * du SQL ({@code :paramName} → {@code record.get("paramName")}).</p>
+     * <p>The fields of each {@code GenericRecord} are mapped to the SQL bind variables
+     * ({@code :paramName} → {@code record.get("paramName")}).</p>
      *
-     * <p>Le {@code batchUpdate} envoie toutes les lignes du chunk en un seul
-     * round-trip JDBC, ce qui est plus performant que des INSERT individuels.</p>
+     * <p>The {@code batchUpdate} sends all rows of the chunk in a single
+     * JDBC round-trip, which is more efficient than individual INSERTs.</p>
      *
-     * @param chunk le chunk de records à persister
-     * @throws Exception en cas d'erreur JDBC (comportement selon {@code onError} dans le YAML)
+     * @param chunk the chunk of records to persist
+     * @throws Exception on JDBC error (behaviour depends on {@code onError} in the YAML)
      */
     @Override
     public void write(Chunk<? extends GenericRecord> chunk) throws Exception {
         if (chunk.isEmpty()) {
-            log.debug("Source '{}' — chunk vide, rien à écrire", sourceName);
+            log.debug("Source '{}' – empty chunk, nothing to write", sourceName);
             return;
         }
 
-        log.info("Source '{}' — écriture de {} enregistrement(s)", sourceName, chunk.size());
+        log.info("Source '{}' – writing {} record(s)", sourceName, chunk.size());
 
-        // Construire les SqlParameterSource pour chaque record du chunk
+        // Build SqlParameterSource for each record in the chunk
         SqlParameterSource[] batchParams = buildBatchParams(chunk);
 
-        // Exécuter le batchUpdate — un seul round-trip JDBC pour tout le chunk
+        // Execute batchUpdate – single JDBC round-trip for the whole chunk
         int[] rowCounts = namedJdbcTemplate.batchUpdate(rawSql, batchParams);
 
-        // Comptage des lignes affectées
+        // Count affected rows
         int totalAffected = 0;
         int skipped = 0;
         for (int count : rowCounts) {
             if (count >= 0) {
                 totalAffected += count;
             } else {
-                skipped++; // SUCCESS_NO_INFO (-2) ou EXECUTE_FAILED (-3)
+                skipped++; // SUCCESS_NO_INFO (-2) or EXECUTE_FAILED (-3)
             }
         }
 
-        log.info("Source '{}' — chunk écrit : {} ligne(s) affectée(s), {} sans info",
+        log.info("Source '{}' – chunk written: {} row(s) affected, {} with no info",
                 sourceName, totalAffected, skipped);
     }
 
@@ -119,15 +119,15 @@ public class SqlGenericItemWriter implements ItemWriter<GenericRecord> {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Construit le tableau de {@code SqlParameterSource} pour le {@code batchUpdate}.
-     * Chaque record est converti en {@code MapSqlParameterSource} avec tous ses champs.
+     * Builds the {@code SqlParameterSource} array for the {@code batchUpdate}.
+     * Each record is converted to a {@code MapSqlParameterSource} with all its fields.
      */
     private SqlParameterSource[] buildBatchParams(Chunk<? extends GenericRecord> chunk) {
         List<SqlParameterSource> params = new ArrayList<>(chunk.size());
 
         for (GenericRecord record : chunk) {
-            // getValues() retourne une Map<String, Object> immutable
-            // MapSqlParameterSource accepte directement une Map
+            // getValues() returns an immutable Map<String, Object>
+            // MapSqlParameterSource accepts a Map directly
             MapSqlParameterSource paramSource = new MapSqlParameterSource(record.getValues());
             params.add(paramSource);
         }
@@ -136,7 +136,7 @@ public class SqlGenericItemWriter implements ItemWriter<GenericRecord> {
     }
 
     /**
-     * Tronque une chaîne pour les logs.
+     * Truncates a string for logging purposes.
      */
     private String abbreviate(String text, int maxLen) {
         if (text == null) return "";

@@ -25,8 +25,8 @@ public class GenericItemReaderFactory {
     private final SqlGenericItemReaderBuilder sqlReaderBuilder;
 
     /**
-     * @param csvReaderBuilder le builder pour les sources CSV
-     * @param sqlReaderBuilder le builder pour les sources SQL
+     * @param csvReaderBuilder the builder for CSV sources
+     * @param sqlReaderBuilder the builder for SQL sources
      */
     public GenericItemReaderFactory(CsvGenericItemReaderBuilder csvReaderBuilder,
                                     SqlGenericItemReaderBuilder sqlReaderBuilder) {
@@ -39,7 +39,7 @@ public class GenericItemReaderFactory {
      * Builds an ItemReader based on the source configuration.
      *
      * @param config the source configuration
-     * @param jobParameters tous les paramètres du job (utilisés pour les bind variables SQL)
+     * @param jobParameters all job parameters (used for SQL bind variables)
      * @return configured ItemStreamReader (extends ItemReader + ItemStream)
      * @throws IllegalArgumentException if source type is unsupported or null
      */
@@ -59,7 +59,7 @@ public class GenericItemReaderFactory {
 
         switch (type.toUpperCase()) {
             case "CSV":
-                return csvReaderBuilder.build(config);  // CSV n'utilise pas les jobParameters
+                return csvReaderBuilder.build(config);  // CSV does not use jobParameters
             
             case "SQL":
                 return sqlReaderBuilder.build(config, jobParameters);

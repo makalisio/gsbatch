@@ -6,12 +6,12 @@ import lombok.Setter;
 import lombok.ToString;
 
 /**
- * Configuration d'une step de pre/post processing (type Tasklet).
+ * Configuration for a pre/post processing step (Tasklet type).
  *
- * <p>Utilisé pour les steps {@code preprocessing} et {@code postprocessing}
- * dans le fichier YAML de la source. La step est ignorée si {@code enabled=false}.</p>
+ * <p>Used for {@code preprocessing} and {@code postprocessing} steps
+ * in the source YAML file. The step is skipped if {@code enabled=false}.</p>
  *
- * <h2>Exemple YAML</h2>
+ * <h2>YAML example</h2>
  * <pre>
  * preprocessing:
  *   enabled: true
@@ -35,81 +35,81 @@ import lombok.ToString;
 public class StepConfig {
 
     /**
-     * Active ou désactive cette step.
-     * Si {@code false}, la step s'exécute mais ne fait rien (no-op).
-     * Défaut : {@code false}.
+     * Enables or disables this step.
+     * If {@code false}, the step executes but does nothing (no-op).
+     * Default: {@code false}.
      */
     private boolean enabled = false;
 
     /**
-     * Type d'exécution : {@code SQL} ou {@code JAVA}.
+     * Execution type: {@code SQL} or {@code JAVA}.
      *
      * <ul>
-     *   <li>{@code SQL}  — exécute le fichier SQL dans {@code sqlDirectory/sqlFile}</li>
-     *   <li>{@code JAVA} — délègue au bean Spring nommé {@code beanName} (doit implémenter {@code Tasklet})</li>
+     *   <li>{@code SQL}  – executes the SQL file at {@code sqlDirectory/sqlFile}</li>
+     *   <li>{@code JAVA} – delegates to the Spring bean named {@code beanName} (must implement {@code Tasklet})</li>
      * </ul>
      */
     private String type;
 
     /**
-     * Répertoire contenant le fichier SQL (requis si {@code type=SQL}).
-     * Peut être absolu ou relatif au répertoire de lancement.
+     * Directory containing the SQL file (required if {@code type=SQL}).
+     * Can be absolute or relative to the launch directory.
      */
     private String sqlDirectory;
 
     /**
-     * Nom du fichier SQL dans {@code sqlDirectory} (requis si {@code type=SQL}).
+     * Name of the SQL file in {@code sqlDirectory} (required if {@code type=SQL}).
      *
-     * <p>Le fichier peut contenir plusieurs instructions séparées par {@code ;},
-     * toutes exécutées dans la même transaction.</p>
+     * <p>The file may contain multiple statements separated by {@code ;},
+     * all executed within the same transaction.</p>
      *
-     * <p>Les bind variables {@code :paramName} sont résolues depuis les {@code jobParameters}.</p>
+     * <p>Bind variables {@code :paramName} are resolved from {@code jobParameters}.</p>
      */
     private String sqlFile;
 
     /**
-     * Nom du bean Spring à appeler (requis si {@code type=JAVA}).
-     * Le bean doit implémenter {@code org.springframework.batch.core.step.tasklet.Tasklet}.
+     * Name of the Spring bean to call (required if {@code type=JAVA}).
+     * The bean must implement {@code org.springframework.batch.core.step.tasklet.Tasklet}.
      */
     private String beanName;
 
     /**
-     * Bean name de la DataSource à utiliser (optionnel, multi-DB).
-     * Utilise la DataSource principale si absent.
+     * Bean name of the DataSource to use (optional, multi-DB).
+     * Uses the primary DataSource if absent.
      */
     private String dataSourceBean;
 
     /**
-     * Valide la configuration de cette step.
+     * Validates the configuration of this step.
      *
-     * @param stepName nom de la step pour les messages d'erreur ("preprocessing" ou "postprocessing")
-     * @throws IllegalStateException si la configuration est invalide
+     * @param stepName step name for error messages ("preprocessing" or "postprocessing")
+     * @throws IllegalStateException if the configuration is invalid
      */
     public void validate(String stepName) {
         if (!enabled) return;
 
         if (type == null || type.isBlank()) {
             throw new IllegalStateException(
-                stepName + ".type est requis (SQL ou JAVA)");
+                stepName + ".type is required (SQL or JAVA)");
         }
 
         if ("SQL".equalsIgnoreCase(type)) {
             if (sqlDirectory == null || sqlDirectory.isBlank()) {
                 throw new IllegalStateException(
-                    stepName + ".sqlDirectory est requis quand type=SQL");
+                    stepName + ".sqlDirectory is required when type=SQL");
             }
             if (sqlFile == null || sqlFile.isBlank()) {
                 throw new IllegalStateException(
-                    stepName + ".sqlFile est requis quand type=SQL");
+                    stepName + ".sqlFile is required when type=SQL");
             }
         } else if ("JAVA".equalsIgnoreCase(type)) {
             if (beanName == null || beanName.isBlank()) {
                 throw new IllegalStateException(
-                    stepName + ".beanName est requis quand type=JAVA");
+                    stepName + ".beanName is required when type=JAVA");
             }
         } else {
             throw new IllegalStateException(
-                stepName + ".type invalide : '" + type + "'. Valeurs acceptées : SQL, JAVA");
+                stepName + ".type is invalid: '" + type + "'. Accepted values: SQL, JAVA");
         }
     }
 }

@@ -23,7 +23,7 @@ public class GenericItemProcessorFactory {
     private final ApplicationContext applicationContext;
 
     /**
-     * @param applicationContext le contexte Spring pour trouver les beans métier
+     * @param applicationContext the Spring context for finding business beans
      */
     public GenericItemProcessorFactory(ApplicationContext applicationContext) {
         this.applicationContext = applicationContext;

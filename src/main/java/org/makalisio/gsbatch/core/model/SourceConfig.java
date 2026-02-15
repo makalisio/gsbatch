@@ -37,91 +37,91 @@ public class SourceConfig {
 
     // ── CSV ──────────────────────────────────────────────────────────────────
 
-    /** Chemin vers le fichier CSV */
+    /** Path to the CSV file */
     private String path;
 
-    /** Délimiteur CSV (défaut : ";") */
+    /** CSV delimiter (default: ";") */
     private String delimiter = ";";
 
-    /** Ignorer la ligne d'en-tête (défaut : true) */
+    /** Skip the header line (default: true) */
     private boolean skipHeader = true;
 
-    /** Liste des colonnes */
+    /** List of columns */
     private List<ColumnConfig> columns = new ArrayList<>();
 
     // ── SQL ──────────────────────────────────────────────────────────────────
 
     /**
-     * Répertoire contenant les fichiers SQL.
-     * Peut être absolu (ex : /data/sql) ou relatif au classpath.
-     * Exemple : /opt/batch/sql  ou  D:/work/sql
+     * Directory containing the SQL files.
+     * Can be absolute (e.g.: /data/sql) or relative to the classpath.
+     * Example: /opt/batch/sql  or  D:/work/sql
      */
     private String sqlDirectory;
 
     /**
-     * Nom du fichier SQL dans le sqlDirectory.
-     * Exemple : orders_new.sql
+     * Name of the SQL file in the sqlDirectory.
+     * Example: orders_new.sql
      *
-     * Le fichier peut contenir des variables bindées de la forme :paramName
-     * dont les valeurs sont transmises via les jobParameters.
+     * The file may contain bind variables of the form :paramName
+     * whose values are passed via jobParameters.
      *
-     * Exemple :
+     * Example:
      *   SELECT * FROM ORDERS
      *   WHERE status = :status
      *     AND trade_date = :process_date
      *
-     * Lancement : java -jar app.jar sourceName=orders status=NEW process_date=2024-01-15
+     * Launch: java -jar app.jar sourceName=orders status=NEW process_date=2024-01-15
      */
     private String sqlFile;
 
     /**
-     * Nombre de lignes chargées par batch JDBC (fetchSize).
-     * Impacte la mémoire et les performances. Défaut : 1000.
+     * Number of rows loaded per JDBC batch (fetchSize).
+     * Impacts memory and performance. Default: 1000.
      */
     private Integer fetchSize;
 
     /**
-     * Bean name de la DataSource à utiliser si plusieurs sources de données
-     * sont déclarées dans le backoffice. Optionnel — utilise la DataSource
-     * principale par défaut.
+     * Bean name of the DataSource to use when multiple data sources
+     * are declared in the backoffice. Optional — uses the primary DataSource
+     * by default.
      */
     private String dataSourceBean;
 
     /**
-     * Retourne le fetchSize, avec 1000 comme valeur par défaut.
+     * Returns the fetchSize, with 1000 as the default value.
      *
-     * @return fetchSize effectif
+     * @return effective fetchSize
      */
     public int getEffectiveFetchSize() {
         return fetchSize != null && fetchSize > 0 ? fetchSize : 1000;
     }
 
-    // ── STEPS PRE/POST PROCESSING ────────────────────────────────────────────
+    // ── PRE/POST PROCESSING STEPS ─────────────────────────────────────────────
 
     /**
-     * Configuration de la step de pre-processing (optionnelle).
-     * Exécutée avant la step de lecture/écriture chunk.
+     * Pre-processing step configuration (optional).
+     * Executed before the read/write chunk step.
      */
     private StepConfig preprocessing = new StepConfig();
 
     /**
-     * Configuration de la step de post-processing (optionnelle).
-     * Exécutée après la step de lecture/écriture chunk.
+     * Post-processing step configuration (optional).
+     * Executed after the read/write chunk step.
      */
     private StepConfig postprocessing = new StepConfig();
 
-    // ── WRITER GÉNÉRIQUE ─────────────────────────────────────────────────────
+    // ── GENERIC WRITER ────────────────────────────────────────────────────────
 
     /**
-     * Configuration du writer.
-     * Si absent, le framework cherche un bean "{sourceName}Writer" dans le contexte Spring.
+     * Writer configuration.
+     * If absent, the framework looks for a bean named "{sourceName}Writer" in the Spring context.
      */
     private WriterConfig writer;
 
     /**
-     * Indique si le writer est configuré de manière déclarative dans le YAML.
+     * Indicates whether the writer is declaratively configured in the YAML.
      *
-     * @return {@code true} si {@code writer} est défini
+     * @return {@code true} if {@code writer} is defined
      */
     public boolean hasWriterConfig() {
         return writer != null;
@@ -164,7 +164,7 @@ public class SourceConfig {
             throw new IllegalStateException("Source type is required for source: " + name);
         }
 
-        // ── Validation CSV ───────────────────────────────────────────────────
+        // ── CSV validation ────────────────────────────────────────────────────
         if ("CSV".equalsIgnoreCase(type)) {
             if (path == null || path.isBlank()) {
                 throw new IllegalStateException("Path is required for CSV source: " + name);
@@ -182,7 +182,7 @@ public class SourceConfig {
             }
         }
 
-        // ── Validation SQL ───────────────────────────────────────────────────
+        // ── SQL validation ────────────────────────────────────────────────────
         if ("SQL".equalsIgnoreCase(type)) {
             if (sqlDirectory == null || sqlDirectory.isBlank()) {
                 throw new IllegalStateException("sqlDirectory is required for SQL source: " + name);
@@ -196,7 +196,7 @@ public class SourceConfig {
             throw new IllegalStateException("Chunk size must be positive for source: " + name);
         }
 
-        // ── Validation pre/post processing ───────────────────────────────────
+        // ── Pre/post processing validation ────────────────────────────────────
         if (preprocessing != null) {
             preprocessing.validate("preprocessing");
         }
@@ -204,7 +204,7 @@ public class SourceConfig {
             postprocessing.validate("postprocessing");
         }
 
-        // ── Validation writer déclaratif ─────────────────────────────────────
+        // ── Declarative writer validation ─────────────────────────────────────
         if (writer != null) {
             writer.validate();
         }

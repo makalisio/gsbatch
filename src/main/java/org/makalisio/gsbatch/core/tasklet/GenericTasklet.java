@@ -15,26 +15,26 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Tasklet generique pilotee par la configuration YAML de la source.
+ * Generic tasklet driven by the YAML source configuration.
  *
- * <p>Utilisee pour les steps de pre-processing et post-processing.
- * Le comportement est determine par le {@link StepConfig} :</p>
+ * <p>Used for pre-processing and post-processing steps.
+ * Behaviour is determined by the {@link StepConfig}:</p>
  *
  * <ul>
- *   <li>{@code enabled=false}  - no-op, retourne immediatement {@code FINISHED}</li>
- *   <li>{@code type=SQL}       - execute toutes les instructions du fichier SQL
- *                               dans la <b>meme transaction</b> (geree par Spring Batch)</li>
- *   <li>{@code type=JAVA}      - delegue au bean Spring nomme {@code beanName}
- *                               (doit implementer {@code Tasklet})</li>
+ *   <li>{@code enabled=false}  - no-op, returns {@code FINISHED} immediately</li>
+ *   <li>{@code type=SQL}       - executes all statements from the SQL file
+ *                               within the <b>same transaction</b> (managed by Spring Batch)</li>
+ *   <li>{@code type=JAVA}      - delegates to the Spring bean named {@code beanName}
+ *                               (must implement {@code Tasklet})</li>
  * </ul>
  *
- * <h2>Multi-statement SQL dans une meme transaction</h2>
- * <p>Spring Batch demarre automatiquement une transaction avant d'appeler
- * {@code execute()}. Toutes les instructions SQL sont executees dans cette
- * transaction. En cas d'exception, Spring Batch effectue le rollback.</p>
+ * <h2>Multi-statement SQL within the same transaction</h2>
+ * <p>Spring Batch automatically starts a transaction before calling
+ * {@code execute()}. All SQL statements are executed within this
+ * transaction. In case of an exception, Spring Batch performs a rollback.</p>
  *
  * <pre>
- * -- pre_orders.sql : plusieurs instructions dans la meme transaction
+ * -- pre_orders.sql: multiple statements in the same transaction
  * UPDATE ORDERS SET status = 'PROCESSING'
  * WHERE status = :status AND order_date = :process_date;
  *
@@ -56,12 +56,12 @@ public class GenericTasklet implements Tasklet {
     private final String sourceName;
 
     /**
-     * @param stepConfig         configuration de la step (pre ou post)
-     * @param jobParameters      parametres du job pour les bind variables SQL
-     * @param sqlFileLoader      loader de fichiers SQL
-     * @param defaultDataSource  DataSource principale
-     * @param applicationContext contexte Spring (pour les beans JAVA)
-     * @param sourceName         nom de la source (pour les logs)
+     * @param stepConfig         step configuration (pre or post)
+     * @param jobParameters      job parameters for SQL bind variables
+     * @param sqlFileLoader      SQL file loader
+     * @param defaultDataSource  primary DataSource
+     * @param applicationContext Spring context (for JAVA beans)
+     * @param sourceName         source name (for logging)
      */
     public GenericTasklet(StepConfig stepConfig,
                           Map<String, Object> jobParameters,
@@ -97,22 +97,22 @@ public class GenericTasklet implements Tasklet {
             executeJava(contribution, chunkContext);
         } else {
             throw new IllegalStateException(
-                "Type de step inconnu : '" + type + "'. Valeurs acceptees : SQL, JAVA");
+                "Unknown step type: '" + type + "'. Accepted values: SQL, JAVA");
         }
 
         return RepeatStatus.FINISHED;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Execution SQL
+    //  SQL execution
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Execute toutes les instructions SQL du fichier dans la transaction courante.
+     * Executes all SQL statements from the file within the current transaction.
      *
-     * <p>Les instructions sont executees sequentiellement.
-     * La transaction est geree par Spring Batch (demarree avant l'appel a {@code execute()}).
-     * Un echec sur n'importe quelle instruction provoque un rollback complet.</p>
+     * <p>Statements are executed sequentially.
+     * The transaction is managed by Spring Batch (started before the call to {@code execute()}).
+     * A failure on any statement triggers a full rollback.</p>
      */
     private void executeSql(StepContribution contribution) {
         List<SqlFileLoader.LoadedSql> statements = sqlFileLoader.loadStatements(
@@ -122,7 +122,7 @@ public class GenericTasklet implements Tasklet {
         );
 
         if (statements.isEmpty()) {
-            log.warn("Source '{}'  - aucune instruction SQL dans {}/{}",
+            log.warn("Source '{}'  - no SQL statement found in {}/{}",
                     sourceName, stepConfig.getSqlDirectory(), stepConfig.getSqlFile());
             return;
         }
@@ -130,13 +130,13 @@ public class GenericTasklet implements Tasklet {
         DataSource dataSource = resolveDataSource();
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
 
-        log.info("Source '{}'  - execution de {} instruction(s) SQL dans la meme transaction",
+        log.info("Source '{}'  - executing {} SQL statement(s) within the same transaction",
                 sourceName, statements.size());
 
         int totalAffected = 0;
         for (int i = 0; i < statements.size(); i++) {
             SqlFileLoader.LoadedSql stmt = statements.get(i);
-            log.debug("Source '{}'  - instruction [{}/{}] : {}",
+            log.debug("Source '{}'  - statement [{}/{}]: {}",
                     sourceName, i + 1, statements.size(),
                     abbreviate(stmt.getExecutableSql(), 120));
 
@@ -145,40 +145,40 @@ public class GenericTasklet implements Tasklet {
                     stmt.getPreparedStatementSetter()
             );
 
-            log.debug("Source '{}'  - instruction [{}/{}] : {} ligne(s) affectee(s)",
+            log.debug("Source '{}'  - statement [{}/{}]: {} row(s) affected",
                     sourceName, i + 1, statements.size(), rowsAffected);
 
             totalAffected += rowsAffected;
             contribution.incrementWriteCount(rowsAffected);
         }
 
-        log.info("Source '{}'  - {} instruction(s) executee(s), {} ligne(s) affectee(s) au total",
+        log.info("Source '{}'  - {} statement(s) executed, {} row(s) affected in total",
                 sourceName, statements.size(), totalAffected);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Delegation Java
+    //  Java delegation
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Delegue l'execution au bean Spring nomme {@code stepConfig.beanName}.
-     * Le bean doit implementer {@code Tasklet}.
+     * Delegates execution to the Spring bean named {@code stepConfig.beanName}.
+     * The bean must implement {@code Tasklet}.
      */
     private void executeJava(StepContribution contribution, ChunkContext chunkContext) throws Exception {
         String beanName = stepConfig.getBeanName();
-        log.info("Source '{}'  - delegation au bean Java : '{}'", sourceName, beanName);
+        log.info("Source '{}'  - delegating to Java bean: '{}'", sourceName, beanName);
 
         if (!applicationContext.containsBean(beanName)) {
             throw new IllegalStateException(String.format(
-                "Bean '%s' introuvable dans le contexte Spring pour la source '%s'.%n" +
-                "Creez un @Component(\"%s\") qui implemente Tasklet dans le backoffice.",
+                "Bean '%s' not found in the Spring context for source '%s'.%n" +
+                "Create a @Component(\"%s\") implementing Tasklet in the backoffice.",
                 beanName, sourceName, beanName
             ));
         }
 
         Tasklet delegate = applicationContext.getBean(beanName, Tasklet.class);
         RepeatStatus status = delegate.execute(contribution, chunkContext);
-        log.info("Source '{}'  - bean '{}' execute avec statut : {}", sourceName, beanName, status);
+        log.info("Source '{}'  - bean '{}' executed with status: {}", sourceName, beanName, status);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -186,19 +186,19 @@ public class GenericTasklet implements Tasklet {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Resout la DataSource a utiliser (nommee ou principale).
+     * Resolves the DataSource to use (named or primary).
      */
     private DataSource resolveDataSource() {
         String beanName = stepConfig.getDataSourceBean();
         if (beanName != null && !beanName.isBlank()) {
-            log.debug("Source '{}'  - DataSource nommee : '{}'", sourceName, beanName);
+            log.debug("Source '{}'  - named DataSource: '{}'", sourceName, beanName);
             return applicationContext.getBean(beanName, DataSource.class);
         }
         return defaultDataSource;
     }
 
     /**
-     * Tronque une chaine pour les logs.
+     * Truncates a string for logging purposes.
      */
     private String abbreviate(String text, int maxLen) {
         if (text == null) return "";

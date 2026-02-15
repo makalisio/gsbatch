@@ -34,24 +34,24 @@ import java.util.Collections;
 import java.util.Map;
 
 /**
- * Configuration du job générique d'ingestion.
+ * Configuration for the generic ingestion job.
  *
- * <h2>Cycle de vie des beans</h2>
+ * <h2>Bean lifecycle</h2>
  * <pre>
- *   Démarrage application
+ *   Application startup
  *     └─ genericIngestionJob              (Singleton)
- *          ├─ genericPreprocessingStep    (@JobScope — no-op si disabled)
+ *          ├─ genericPreprocessingStep    (@JobScope — no-op if disabled)
  *          ├─ genericIngestionStep        (@JobScope — chunk reader/processor/writer)
- *          └─ genericPostprocessingStep   (@JobScope — no-op si disabled)
+ *          └─ genericPostprocessingStep   (@JobScope — no-op if disabled)
  * </pre>
  *
- * <h2>Steps pre/post processing</h2>
- * <p>Toujours incluses dans le job mais sont des no-ops si {@code enabled=false}.
- * Cela permet de ne pas reconstruire la définition du job selon la configuration.</p>
+ * <h2>Pre/post processing steps</h2>
+ * <p>Always included in the job but act as no-ops if {@code enabled=false}.
+ * This avoids rebuilding the job definition based on configuration.</p>
  *
  * <h2>Writer fault-tolerance</h2>
- * <p>Si {@code writer.onError=SKIP} dans le YAML, la step ingestion est configurée
- * en mode {@code faultTolerant} avec {@code skipLimit} configurable.</p>
+ * <p>If {@code writer.onError=SKIP} in the YAML, the ingestion step is configured
+ * in {@code faultTolerant} mode with a configurable {@code skipLimit}.</p>
  *
  * @author Makalisio
  * @since 0.0.1
@@ -69,13 +69,13 @@ public class GenericIngestionJobConfig {
     private final ApplicationContext applicationContext;
 
     /**
-     * @param configLoader       loader de configuration YAML
-     * @param readerFactory      factory de readers
-     * @param processorFactory   factory de processors
-     * @param writerFactory      factory de writers
-     * @param sqlFileLoader      loader de fichiers SQL (pour pre/post processing)
-     * @param defaultDataSource  DataSource principale
-     * @param applicationContext contexte Spring (pour les beans JAVA)
+     * @param configLoader       YAML configuration loader
+     * @param readerFactory      reader factory
+     * @param processorFactory   processor factory
+     * @param writerFactory      writer factory
+     * @param sqlFileLoader      SQL file loader (for pre/post processing)
+     * @param defaultDataSource  primary DataSource
+     * @param applicationContext Spring context (for JAVA beans)
      */
     public GenericIngestionJobConfig(YamlSourceConfigLoader configLoader,
                                      GenericItemReaderFactory readerFactory,
@@ -99,14 +99,14 @@ public class GenericIngestionJobConfig {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Job générique avec 3 steps : pre-processing → ingestion chunk → post-processing.
-     * Les steps pre/post sont des no-ops si {@code enabled=false} dans le YAML.
+     * Generic job with 3 steps: pre-processing → ingestion chunk → post-processing.
+     * Pre/post steps are no-ops if {@code enabled=false} in the YAML.
      *
-     * @param jobRepository              le dépôt Spring Batch
-     * @param genericPreprocessingStep   step de pre-processing (proxy @JobScope)
-     * @param genericIngestionStep       step chunk principale (proxy @JobScope)
-     * @param genericPostprocessingStep  step de post-processing (proxy @JobScope)
-     * @return le job configuré
+     * @param jobRepository              the Spring Batch job repository
+     * @param genericPreprocessingStep   pre-processing step (@JobScope proxy)
+     * @param genericIngestionStep       main chunk step (@JobScope proxy)
+     * @param genericPostprocessingStep  post-processing step (@JobScope proxy)
+     * @return the configured job
      */
     @Bean
     public Job genericIngestionJob(JobRepository jobRepository,
@@ -126,14 +126,14 @@ public class GenericIngestionJobConfig {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Step de pre-processing (Tasklet).
-     * No-op si {@code preprocessing.enabled=false} dans le YAML.
+     * Pre-processing step (Tasklet).
+     * No-op if {@code preprocessing.enabled=false} in the YAML.
      *
-     * @param jobRepository  le dépôt Spring Batch
-     * @param txManager      gestionnaire de transaction
-     * @param sourceName     nom de la source (depuis jobParameters)
-     * @param jobParameters  tous les paramètres du job
-     * @return la step configurée
+     * @param jobRepository  the Spring Batch job repository
+     * @param txManager      transaction manager
+     * @param sourceName     source name (from jobParameters)
+     * @param jobParameters  all job parameters
+     * @return the configured step
      */
     @Bean
     @JobScope
@@ -166,18 +166,18 @@ public class GenericIngestionJobConfig {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Step principale de lecture/traitement/écriture en mode chunk.
+     * Main read/process/write step in chunk mode.
      *
-     * <p>Si {@code writer.onError=SKIP}, la step est configurée en mode
-     * {@code faultTolerant} avec {@code skipLimit} depuis le YAML.</p>
+     * <p>If {@code writer.onError=SKIP}, the step is configured in
+     * {@code faultTolerant} mode with {@code skipLimit} from the YAML.</p>
      *
-     * @param jobRepository              le dépôt Spring Batch
-     * @param txManager                  gestionnaire de transaction
-     * @param genericIngestionReader     reader (proxy @StepScope)
-     * @param genericIngestionProcessor  processor (proxy @StepScope)
-     * @param genericIngestionWriter     writer (proxy @StepScope)
-     * @param sourceName                 nom de la source (depuis jobParameters)
-     * @return la step configurée
+     * @param jobRepository              the Spring Batch job repository
+     * @param txManager                  transaction manager
+     * @param genericIngestionReader     reader (@StepScope proxy)
+     * @param genericIngestionProcessor  processor (@StepScope proxy)
+     * @param genericIngestionWriter     writer (@StepScope proxy)
+     * @param sourceName                 source name (from jobParameters)
+     * @return the configured step
      */
     @Bean
     @JobScope
@@ -201,7 +201,7 @@ public class GenericIngestionJobConfig {
                         .processor(genericIngestionProcessor)
                         .writer(genericIngestionWriter);
 
-        // ── Fault tolerance si writer.onError=SKIP ───────────────────────────
+        // ── Fault tolerance if writer.onError=SKIP ───────────────────────────
         if (config.hasWriterConfig()) {
             WriterConfig writerConfig = config.getWriter();
             if (writerConfig.isSkipOnError()) {
@@ -226,14 +226,14 @@ public class GenericIngestionJobConfig {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Step de post-processing (Tasklet).
-     * No-op si {@code postprocessing.enabled=false} dans le YAML.
+     * Post-processing step (Tasklet).
+     * No-op if {@code postprocessing.enabled=false} in the YAML.
      *
-     * @param jobRepository  le dépôt Spring Batch
-     * @param txManager      gestionnaire de transaction
-     * @param sourceName     nom de la source (depuis jobParameters)
-     * @param jobParameters  tous les paramètres du job
-     * @return la step configurée
+     * @param jobRepository  the Spring Batch job repository
+     * @param txManager      transaction manager
+     * @param sourceName     source name (from jobParameters)
+     * @param jobParameters  all job parameters
+     * @return the configured step
      */
     @Bean
     @JobScope
@@ -266,12 +266,12 @@ public class GenericIngestionJobConfig {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Reader générique (@StepScope).
-     * Tous les jobParameters sont transmis pour la résolution des bind variables SQL.
+     * Generic reader (@StepScope).
+     * All jobParameters are passed for SQL bind variable resolution.
      *
-     * @param sourceName    nom de la source (depuis jobParameters)
-     * @param jobParameters tous les paramètres du job (bind variables SQL)
-     * @return reader configuré (ItemStreamReader = ItemReader + ItemStream)
+     * @param sourceName    source name (from jobParameters)
+     * @param jobParameters all job parameters (SQL bind variables)
+     * @return configured reader (ItemStreamReader = ItemReader + ItemStream)
      */
     @Bean
     @StepScope
@@ -285,10 +285,10 @@ public class GenericIngestionJobConfig {
     }
 
     /**
-     * Processor générique (@StepScope).
+     * Generic processor (@StepScope).
      *
-     * @param sourceName nom de la source (depuis jobParameters)
-     * @return processor configuré (pass-through si aucun bean métier trouvé)
+     * @param sourceName source name (from jobParameters)
+     * @return configured processor (pass-through if no custom bean found)
      */
     @Bean
     @StepScope
@@ -301,11 +301,11 @@ public class GenericIngestionJobConfig {
     }
 
     /**
-     * Writer générique (@StepScope).
-     * Résolution dans l'ordre : writer.type=SQL → writer.type=JAVA → bean {sourceName}Writer.
+     * Generic writer (@StepScope).
+     * Resolution order: writer.type=SQL → writer.type=JAVA → bean {sourceName}Writer.
      *
-     * @param sourceName nom de la source (depuis jobParameters)
-     * @return writer configuré
+     * @param sourceName source name (from jobParameters)
+     * @return configured writer
      */
     @Bean
     @StepScope

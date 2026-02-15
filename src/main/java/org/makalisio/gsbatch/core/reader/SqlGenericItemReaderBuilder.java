@@ -18,25 +18,25 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Builder pour les readers SQL basés sur des fichiers {@code .sql} externes.
+ * Builder for SQL readers based on external {@code .sql} files.
  *
- * <h2>Flux d'exécution</h2>
+ * <h2>Execution flow</h2>
  * <pre>
  *   orders.yml
  *     sqlDirectory: /opt/sql
  *     sqlFile: orders.sql         ──► SqlFileLoader.load()
  *                                         │
- *                                         ├─ lit orders.sql
- *                                         ├─ parse les :variables
- *                                         ├─ résout depuis jobParameters
- *                                         └─ retourne SQL(?) + PreparedStatementSetter
+ *                                         ├─ reads orders.sql
+ *                                         ├─ parses :variables
+ *                                         ├─ resolves from jobParameters
+ *                                         └─ returns SQL(?) + PreparedStatementSetter
  *                                                     │
  *                                         JdbcCursorItemReader
  *                                            .sql(executableSql)
  *                                            .preparedStatementSetter(setter)
  * </pre>
  *
- * <h2>Exemple de fichier SQL</h2>
+ * <h2>Example SQL file</h2>
  * <pre>
  *   SELECT order_id, customer_id, amount, currency
  *   FROM   ORDERS
@@ -45,7 +45,7 @@ import java.util.Map;
  *   ORDER BY order_id
  * </pre>
  *
- * <h2>Lancement</h2>
+ * <h2>Launch</h2>
  * <pre>
  *   java -jar app.jar sourceName=orders status=NEW process_date=2024-01-15
  * </pre>
@@ -62,9 +62,9 @@ public class SqlGenericItemReaderBuilder {
     private final BeanFactory beanFactory;
 
     /**
-     * @param sqlFileLoader     loader de fichiers SQL avec résolution des bind variables
-     * @param defaultDataSource DataSource principale (auto-configurée par Spring Boot)
-     * @param beanFactory       pour résoudre les DataSource nommées (multi-DB)
+     * @param sqlFileLoader     SQL file loader with bind variable resolution
+     * @param defaultDataSource primary DataSource (auto-configured by Spring Boot)
+     * @param beanFactory       for resolving named DataSources (multi-DB)
      */
     public SqlGenericItemReaderBuilder(SqlFileLoader sqlFileLoader,
                                        DataSource defaultDataSource,
@@ -76,36 +76,36 @@ public class SqlGenericItemReaderBuilder {
     }
 
     /**
-     * Construit un {@link JdbcCursorItemReader} pour une source SQL.
+     * Builds a {@link JdbcCursorItemReader} for a SQL source.
      *
-     * <p>Le SQL est lu depuis le fichier {@code sqlDirectory/sqlFile} défini dans le YAML.
-     * Les variables {@code :paramName} sont résolues depuis les {@code jobParameters}.</p>
+     * <p>The SQL is read from the file {@code sqlDirectory/sqlFile} defined in the YAML.
+     * Variables {@code :paramName} are resolved from {@code jobParameters}.</p>
      *
-     * @param config        la configuration YAML de la source
-     * @param jobParameters tous les paramètres du job (contient les valeurs des bind variables)
-     * @return reader JDBC configuré et prêt pour Spring Batch
-     * @throws SqlFileLoader.SqlFileException si le fichier est introuvable ou un paramètre manque
+     * @param config        the YAML source configuration
+     * @param jobParameters all job parameters (contains bind variable values)
+     * @return JDBC reader configured and ready for Spring Batch
+     * @throws SqlFileLoader.SqlFileException if the file is not found or a parameter is missing
      */
     public JdbcCursorItemReader<GenericRecord> build(SourceConfig config,
                                                       Map<String, Object> jobParameters) {
         log.info("Building SQL reader for source '{}' - file: {}/{}",
                 config.getName(), config.getSqlDirectory(), config.getSqlFile());
 
-        // ── 1. Charger le SQL + résoudre les bind variables ──────────────────
+        // ── 1. Load SQL + resolve bind variables ─────────────────────────────
         SqlFileLoader.LoadedSql loadedSql = sqlFileLoader.load(config, jobParameters);
 
-        log.info("Source '{}' - SQL prêt, {} bind variable(s) : {}",
+        log.info("Source '{}' - SQL ready, {} bind variable(s): {}",
                 config.getName(),
                 loadedSql.getParameterNames().size(),
                 loadedSql.getParameterNames());
 
-        // ── 2. Résoudre la DataSource ────────────────────────────────────────
+        // ── 2. Resolve DataSource ─────────────────────────────────────────────
         DataSource dataSource = resolveDataSource(config);
 
-        // ── 3. Construire le RowMapper ───────────────────────────────────────
+        // ── 3. Build RowMapper ────────────────────────────────────────────────
         RowMapper<GenericRecord> rowMapper = buildRowMapper(config);
 
-        // ── 4. Assembler le JdbcCursorItemReader ─────────────────────────────
+        // ── 4. Assemble JdbcCursorItemReader ──────────────────────────────────
         JdbcCursorItemReaderBuilder<GenericRecord> builder =
                 new JdbcCursorItemReaderBuilder<GenericRecord>()
                         .name("sqlReader-" + config.getName())
@@ -114,12 +114,12 @@ public class SqlGenericItemReaderBuilder {
                         .fetchSize(config.getEffectiveFetchSize())
                         .rowMapper(rowMapper);
 
-        // N'ajouter le setter que s'il y a des paramètres bindés
+        // Only add setter if there are bound parameters
         if (!loadedSql.getParameterNames().isEmpty()) {
             builder.preparedStatementSetter(loadedSql.getPreparedStatementSetter());
         }
 
-        log.debug("Source '{}' - JdbcCursorItemReader construit (fetchSize={})",
+        log.debug("Source '{}' - JdbcCursorItemReader built (fetchSize={})",
                 config.getName(), config.getEffectiveFetchSize());
 
         return builder.build();
@@ -130,24 +130,24 @@ public class SqlGenericItemReaderBuilder {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Choisit le RowMapper adapté selon la présence de colonnes dans le YAML.
-     * Mapping explicite (colonnes déclarées) = recommandé en production.
-     * Mapping auto (colonnes absentes) = pratique pour le prototypage.
+     * Selects the appropriate RowMapper based on whether columns are declared in the YAML.
+     * Explicit mapping (columns declared) = recommended in production.
+     * Auto mapping (no columns) = convenient for prototyping.
      */
     private RowMapper<GenericRecord> buildRowMapper(SourceConfig config) {
         boolean hasExplicitColumns = config.getColumns() != null && !config.getColumns().isEmpty();
         if (hasExplicitColumns) {
-            log.debug("Source '{}' - mapping explicite ({} colonnes)",
+            log.debug("Source '{}' - explicit mapping ({} columns)",
                     config.getName(), config.getColumns().size());
             return new ExplicitColumnRowMapper(config.getColumns());
         }
-        log.debug("Source '{}' - mapping automatique (métadonnées JDBC)", config.getName());
+        log.debug("Source '{}' - automatic mapping (JDBC metadata)", config.getName());
         return new AutoColumnRowMapper();
     }
 
     /**
-     * Mapping explicite : ne lit que les colonnes déclarées dans le YAML.
-     * Avantage : indépendant des changements de schéma non listés.
+     * Explicit mapping: reads only the columns declared in the YAML.
+     * Advantage: independent of undeclared schema changes.
      */
     private static class ExplicitColumnRowMapper implements RowMapper<GenericRecord> {
         private final List<ColumnConfig> columns;
@@ -164,7 +164,7 @@ public class SqlGenericItemReaderBuilder {
                 try {
                     record.put(name, rs.getObject(name));
                 } catch (SQLException e) {
-                    // Colonne absente du ResultSet → null plutôt que crash
+                    // Column absent from ResultSet → null instead of crash
                     record.put(name, null);
                 }
             }
@@ -173,8 +173,8 @@ public class SqlGenericItemReaderBuilder {
     }
 
     /**
-     * Mapping automatique : lit toutes les colonnes du ResultSet via les métadonnées JDBC.
-     * Utilise le COLUMN_LABEL (alias SQL) en priorité sur le COLUMN_NAME.
+     * Automatic mapping: reads all ResultSet columns via JDBC metadata.
+     * Uses COLUMN_LABEL (SQL alias) in priority over COLUMN_NAME.
      */
     private static class AutoColumnRowMapper implements RowMapper<GenericRecord> {
         @Override
@@ -196,16 +196,16 @@ public class SqlGenericItemReaderBuilder {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Résout la DataSource : utilise le bean nommé si {@code dataSourceBean}
-     * est défini dans le YAML, sinon la DataSource principale.
+     * Resolves the DataSource: uses the named bean if {@code dataSourceBean}
+     * is defined in the YAML, otherwise uses the primary DataSource.
      */
     private DataSource resolveDataSource(SourceConfig config) {
         String beanName = config.getDataSourceBean();
         if (beanName != null && !beanName.isBlank()) {
-            log.debug("Source '{}' - DataSource nommée : '{}'", config.getName(), beanName);
+            log.debug("Source '{}' - named DataSource: '{}'", config.getName(), beanName);
             return beanFactory.getBean(beanName, DataSource.class);
         }
-        log.debug("Source '{}' - DataSource principale", config.getName());
+        log.debug("Source '{}' - primary DataSource", config.getName());
         return defaultDataSource;
     }
 }

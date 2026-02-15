@@ -6,14 +6,14 @@ import lombok.Setter;
 import lombok.ToString;
 
 /**
- * Configuration du writer dans le YAML de la source.
+ * Writer configuration in the source YAML file.
  *
- * <p>Si absent du YAML, le framework cherche un bean nommé
- * {@code {sourceName}Writer} dans le contexte Spring (comportement historique).</p>
+ * <p>If absent from the YAML, the framework looks for a bean named
+ * {@code {sourceName}Writer} in the Spring context (legacy behaviour).</p>
  *
- * <h2>Exemples YAML</h2>
+ * <h2>YAML examples</h2>
  *
- * <p>Writer SQL (fichier INSERT) :</p>
+ * <p>SQL writer (INSERT file):</p>
  * <pre>
  * writer:
  *   type: SQL
@@ -23,7 +23,7 @@ import lombok.ToString;
  *   skipLimit: 10
  * </pre>
  *
- * <p>Writer Java (bean Spring) :</p>
+ * <p>Java writer (Spring bean):</p>
  * <pre>
  * writer:
  *   type: JAVA
@@ -31,8 +31,8 @@ import lombok.ToString;
  *   onError: FAIL
  * </pre>
  *
- * <p>Le fichier SQL utilise des bind variables dont les noms correspondent
- * aux champs du {@code GenericRecord} :</p>
+ * <p>The SQL file uses bind variables whose names correspond
+ * to the fields of the {@code GenericRecord}:</p>
  * <pre>
  *   INSERT INTO ORDERS_OUT (order_id, amount, currency)
  *   VALUES (:order_id, :amount, :currency)
@@ -48,99 +48,99 @@ import lombok.ToString;
 public class WriterConfig {
 
     /**
-     * Type de writer : {@code SQL} ou {@code JAVA}.
+     * Writer type: {@code SQL} or {@code JAVA}.
      *
      * <ul>
-     *   <li>{@code SQL}  — exécute le fichier SQL en batch, bind variables = champs du {@code GenericRecord}</li>
-     *   <li>{@code JAVA} — délègue au bean Spring nommé {@code beanName} (doit implémenter {@code ItemWriter})</li>
+     *   <li>{@code SQL}  – executes the SQL file in batch, bind variables = fields of {@code GenericRecord}</li>
+     *   <li>{@code JAVA} – delegates to the Spring bean named {@code beanName} (must implement {@code ItemWriter})</li>
      * </ul>
      */
     private String type;
 
     /**
-     * Répertoire contenant le fichier SQL (requis si {@code type=SQL}).
+     * Directory containing the SQL file (required if {@code type=SQL}).
      */
     private String sqlDirectory;
 
     /**
-     * Nom du fichier SQL dans {@code sqlDirectory} (requis si {@code type=SQL}).
-     * Doit contenir une seule instruction INSERT/UPDATE/MERGE/DELETE.
+     * Name of the SQL file in {@code sqlDirectory} (required if {@code type=SQL}).
+     * Must contain a single INSERT/UPDATE/MERGE/DELETE statement.
      */
     private String sqlFile;
 
     /**
-     * Nom du bean Spring {@code ItemWriter} (requis si {@code type=JAVA}).
+     * Name of the Spring {@code ItemWriter} bean (required if {@code type=JAVA}).
      */
     private String beanName;
 
     /**
-     * Bean name de la DataSource à utiliser (optionnel, multi-DB).
+     * Bean name of the DataSource to use (optional, multi-DB).
      */
     private String dataSourceBean;
 
     /**
-     * Comportement en cas d'erreur sur une ligne.
+     * Behaviour on row error.
      *
      * <ul>
-     *   <li>{@code FAIL} (défaut) — le job échoue immédiatement au premier problème</li>
-     *   <li>{@code SKIP} — la ligne est ignorée, l'erreur est loguée, le job continue</li>
+     *   <li>{@code FAIL} (default) – the job fails immediately on the first error</li>
+     *   <li>{@code SKIP} – the row is skipped, the error is logged, the job continues</li>
      * </ul>
      */
     private String onError = "FAIL";
 
     /**
-     * Nombre maximum de lignes ignorables (utilisé uniquement si {@code onError=SKIP}).
-     * Si dépassé, le job échoue. Défaut : 10.
+     * Maximum number of skippable rows (used only if {@code onError=SKIP}).
+     * If exceeded, the job fails. Default: 10.
      */
     private int skipLimit = 10;
 
     /**
-     * Indique si le writer est configuré en mode tolérant aux erreurs.
+     * Indicates whether the writer is configured in fault-tolerant mode.
      *
-     * @return {@code true} si {@code onError=SKIP}
+     * @return {@code true} if {@code onError=SKIP}
      */
     public boolean isSkipOnError() {
         return "SKIP".equalsIgnoreCase(onError);
     }
 
     /**
-     * Valide la configuration du writer.
+     * Validates the writer configuration.
      *
-     * @throws IllegalStateException si la configuration est invalide
+     * @throws IllegalStateException if the configuration is invalid
      */
     public void validate() {
         if (type == null || type.isBlank()) {
             throw new IllegalStateException(
-                "writer.type est requis (SQL ou JAVA)");
+                "writer.type is required (SQL or JAVA)");
         }
 
         if ("SQL".equalsIgnoreCase(type)) {
             if (sqlDirectory == null || sqlDirectory.isBlank()) {
                 throw new IllegalStateException(
-                    "writer.sqlDirectory est requis quand type=SQL");
+                    "writer.sqlDirectory is required when type=SQL");
             }
             if (sqlFile == null || sqlFile.isBlank()) {
                 throw new IllegalStateException(
-                    "writer.sqlFile est requis quand type=SQL");
+                    "writer.sqlFile is required when type=SQL");
             }
         } else if ("JAVA".equalsIgnoreCase(type)) {
             if (beanName == null || beanName.isBlank()) {
                 throw new IllegalStateException(
-                    "writer.beanName est requis quand type=JAVA");
+                    "writer.beanName is required when type=JAVA");
             }
         } else {
             throw new IllegalStateException(
-                "writer.type invalide : '" + type + "'. Valeurs acceptées : SQL, JAVA");
+                "writer.type is invalid: '" + type + "'. Accepted values: SQL, JAVA");
         }
 
         if (!"FAIL".equalsIgnoreCase(onError) && !"SKIP".equalsIgnoreCase(onError)) {
             throw new IllegalStateException(
-                "writer.onError invalide : '" + onError + "'. Valeurs acceptées : FAIL, SKIP");
+                "writer.onError is invalid: '" + onError + "'. Accepted values: FAIL, SKIP");
         }
 
         if (isSkipOnError() && skipLimit <= 0) {
             throw new IllegalStateException(
-                "writer.skipLimit doit être > 0 quand onError=SKIP");
+                "writer.skipLimit must be > 0 when onError=SKIP");
         }
     }
 }
