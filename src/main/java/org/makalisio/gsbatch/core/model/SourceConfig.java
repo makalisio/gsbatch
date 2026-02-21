@@ -37,91 +37,108 @@ public class SourceConfig {
 
     // ── CSV ──────────────────────────────────────────────────────────────────
 
-    /** Path to the CSV file */
+    /** Chemin vers le fichier CSV */
     private String path;
 
-    /** CSV delimiter (default: ";") */
+    /** Delimiteur CSV (defaut : ";") */
     private String delimiter = ";";
 
-    /** Skip the header line (default: true) */
+    /** Ignorer la ligne d'en-tete (defaut : true) */
     private boolean skipHeader = true;
 
-    /** List of columns */
+    /** Liste des colonnes */
     private List<ColumnConfig> columns = new ArrayList<>();
 
     // ── SQL ──────────────────────────────────────────────────────────────────
 
     /**
-     * Directory containing the SQL files.
-     * Can be absolute (e.g.: /data/sql) or relative to the classpath.
-     * Example: /opt/batch/sql  or  D:/work/sql
+     * Repertoire contenant les fichiers SQL.
+     * Peut etre absolu (ex : /data/sql) ou relatif au classpath.
+     * Exemple : /opt/batch/sql  ou  D:/work/sql
      */
     private String sqlDirectory;
 
     /**
-     * Name of the SQL file in the sqlDirectory.
-     * Example: orders_new.sql
+     * Nom du fichier SQL dans le sqlDirectory.
+     * Exemple : orders_new.sql
      *
-     * The file may contain bind variables of the form :paramName
-     * whose values are passed via jobParameters.
+     * Le fichier peut contenir des variables bindees de la forme :paramName
+     * dont les valeurs sont transmises via les jobParameters.
      *
-     * Example:
+     * Exemple :
      *   SELECT * FROM ORDERS
      *   WHERE status = :status
      *     AND trade_date = :process_date
      *
-     * Launch: java -jar app.jar sourceName=orders status=NEW process_date=2024-01-15
+     * Lancement : java -jar app.jar sourceName=orders status=NEW process_date=2024-01-15
      */
     private String sqlFile;
 
     /**
-     * Number of rows loaded per JDBC batch (fetchSize).
-     * Impacts memory and performance. Default: 1000.
+     * Nombre de lignes chargees par batch JDBC (fetchSize).
+     * Impacte la memoire et les performances. Defaut : 1000.
      */
     private Integer fetchSize;
 
     /**
-     * Bean name of the DataSource to use when multiple data sources
-     * are declared in the backoffice. Optional - uses the primary DataSource
-     * by default.
+     * Bean name de la DataSource a utiliser si plusieurs sources de donnees
+     * sont declarees dans le backoffice. Optionnel  - utilise la DataSource
+     * principale par defaut.
      */
     private String dataSourceBean;
 
     /**
-     * Returns the fetchSize, with 1000 as the default value.
+     * Retourne le fetchSize, avec 1000 comme valeur par defaut.
      *
-     * @return effective fetchSize
+     * @return fetchSize effectif
      */
     public int getEffectiveFetchSize() {
         return fetchSize != null && fetchSize > 0 ? fetchSize : 1000;
     }
 
-    // ── PRE/POST PROCESSING STEPS ─────────────────────────────────────────────
+    // ── REST API CONFIGURATION ───────────────────────────────────────────────
 
     /**
-     * Pre-processing step configuration (optional).
-     * Executed before the read/write chunk step.
+     * REST API configuration (required when type=REST).
+     * Contains URL, authentication, pagination, and JSON extraction settings.
+     */
+    private RestConfig rest;
+
+    /**
+     * Indicates if this source has REST configuration.
+     *
+     * @return {@code true} if {@code rest} is defined
+     */
+    public boolean hasRestConfig() {
+        return rest != null;
+    }
+
+    // ── STEPS PRE/POST PROCESSING ────────────────────────────────────────────
+
+    /**
+     * Configuration de la step de pre-processing (optionnelle).
+     * Executee avant la step de lecture/ecriture chunk.
      */
     private StepConfig preprocessing = new StepConfig();
 
     /**
-     * Post-processing step configuration (optional).
-     * Executed after the read/write chunk step.
+     * Configuration de la step de post-processing (optionnelle).
+     * Executee apres la step de lecture/ecriture chunk.
      */
     private StepConfig postprocessing = new StepConfig();
 
-    // ── GENERIC WRITER ────────────────────────────────────────────────────────
+    // ── WRITER GENERIQUE ─────────────────────────────────────────────────────
 
     /**
-     * Writer configuration.
-     * If absent, the framework looks for a bean named "{sourceName}Writer" in the Spring context.
+     * Configuration du writer.
+     * Si absent, le framework cherche un bean "{sourceName}Writer" dans le contexte Spring.
      */
     private WriterConfig writer;
 
     /**
-     * Indicates whether the writer is declaratively configured in the YAML.
+     * Indique si le writer est configure de maniere declarative dans le YAML.
      *
-     * @return {@code true} if {@code writer} is defined
+     * @return {@code true} si {@code writer} est defini
      */
     public boolean hasWriterConfig() {
         return writer != null;
@@ -164,7 +181,7 @@ public class SourceConfig {
             throw new IllegalStateException("Source type is required for source: " + name);
         }
 
-        // ── CSV validation ────────────────────────────────────────────────────
+        // ── Validation CSV ───────────────────────────────────────────────────
         if ("CSV".equalsIgnoreCase(type)) {
             if (path == null || path.isBlank()) {
                 throw new IllegalStateException("Path is required for CSV source: " + name);
@@ -182,7 +199,7 @@ public class SourceConfig {
             }
         }
 
-        // ── SQL validation ────────────────────────────────────────────────────
+        // ── Validation SQL ───────────────────────────────────────────────────
         if ("SQL".equalsIgnoreCase(type)) {
             if (sqlDirectory == null || sqlDirectory.isBlank()) {
                 throw new IllegalStateException("sqlDirectory is required for SQL source: " + name);
@@ -191,12 +208,20 @@ public class SourceConfig {
                 throw new IllegalStateException("sqlFile is required for SQL source: " + name);
             }
         }
+
+        // ── Validation REST ──────────────────────────────────────────────────
+        if ("REST".equalsIgnoreCase(type)) {
+            if (rest == null) {
+                throw new IllegalStateException("rest configuration is required for REST source: " + name);
+            }
+            rest.validate();
+        }
         
         if (chunkSize != null && chunkSize <= 0) {
             throw new IllegalStateException("Chunk size must be positive for source: " + name);
         }
 
-        // ── Pre/post processing validation ────────────────────────────────────
+        // ── Validation pre/post processing ───────────────────────────────────
         if (preprocessing != null) {
             preprocessing.validate("preprocessing");
         }
@@ -204,7 +229,7 @@ public class SourceConfig {
             postprocessing.validate("postprocessing");
         }
 
-        // ── Declarative writer validation ─────────────────────────────────────
+        // ── Validation writer declaratif ─────────────────────────────────────
         if (writer != null) {
             writer.validate();
         }

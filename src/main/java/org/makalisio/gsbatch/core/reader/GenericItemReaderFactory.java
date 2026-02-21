@@ -23,23 +23,27 @@ public class GenericItemReaderFactory {
 
     private final CsvGenericItemReaderBuilder csvReaderBuilder;
     private final SqlGenericItemReaderBuilder sqlReaderBuilder;
+    private final RestGenericItemReaderBuilder restReaderBuilder;
 
     /**
-     * @param csvReaderBuilder the builder for CSV sources
-     * @param sqlReaderBuilder the builder for SQL sources
+     * @param csvReaderBuilder  builder for CSV sources
+     * @param sqlReaderBuilder  builder for SQL sources
+     * @param restReaderBuilder builder for REST API sources
      */
     public GenericItemReaderFactory(CsvGenericItemReaderBuilder csvReaderBuilder,
-                                    SqlGenericItemReaderBuilder sqlReaderBuilder) {
+                                    SqlGenericItemReaderBuilder sqlReaderBuilder,
+                                    RestGenericItemReaderBuilder restReaderBuilder) {
         this.csvReaderBuilder = csvReaderBuilder;
         this.sqlReaderBuilder = sqlReaderBuilder;
+        this.restReaderBuilder = restReaderBuilder;
         log.info("GenericItemReaderFactory initialized");
     }
 
     /**
      * Builds an ItemReader based on the source configuration.
      *
-     * @param config the source configuration
-     * @param jobParameters all job parameters (used for SQL bind variables)
+     * @param config        the source configuration
+     * @param jobParameters all job parameters (used for bind variables in SQL and REST)
      * @return configured ItemStreamReader (extends ItemReader + ItemStream)
      * @throws IllegalArgumentException if source type is unsupported or null
      */
@@ -64,6 +68,9 @@ public class GenericItemReaderFactory {
             case "SQL":
                 return sqlReaderBuilder.build(config, jobParameters);
             
+            case "REST":
+                return restReaderBuilder.build(config, jobParameters);
+            
             case "JSON":
                 throw new UnsupportedOperationException(
                     "JSON reader not yet implemented for source: " + config.getName()
@@ -76,7 +83,7 @@ public class GenericItemReaderFactory {
             
             default:
                 String errorMsg = String.format(
-                    "Unsupported source type '%s' for source: %s. Supported types: CSV, SQL",
+                    "Unsupported source type '%s' for source: %s. Supported types: CSV, SQL, REST",
                     type, config.getName()
                 );
                 log.error(errorMsg);

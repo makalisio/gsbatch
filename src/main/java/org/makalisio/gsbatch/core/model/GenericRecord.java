@@ -18,6 +18,23 @@ public class GenericRecord {
     private final Map<String, Object> values = new HashMap<>();
 
     /**
+     * Default constructor - creates an empty record.
+     */
+    public GenericRecord() {
+    }
+
+    /**
+     * Constructor with initial values.
+     *
+     * @param initialValues map of field names to values
+     */
+    public GenericRecord(Map<String, Object> initialValues) {
+        if (initialValues != null) {
+            this.values.putAll(initialValues);
+        }
+    }
+
+    /**
      * Puts a value in the record.
      *
      * @param name the field name
@@ -71,6 +88,16 @@ public class GenericRecord {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    /**
+     * Gets a value as an Integer (alias for getInteger).
+     *
+     * @param name the field name
+     * @return the value as Integer, or null if not found or cannot be converted
+     */
+    public Integer getInt(String name) {
+        return getInteger(name);
     }
 
     /**

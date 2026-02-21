@@ -37,6 +37,23 @@ public class ColumnConfig {
     private String format;
 
     /**
+     * JsonPath expression for extracting this field from JSON (REST sources only).
+     *
+     * <p>Used when the JSON key differs from the column name or when extracting nested values.</p>
+     *
+     * <p>Examples:
+     * <ul>
+     *   <li>{@code $.orderId} - Simple field mapping (JSON key is 'orderId')</li>
+     *   <li>{@code $.customer.id} - Nested field extraction</li>
+     *   <li>{@code $.pricing.totalAmount} - Deeply nested field</li>
+     * </ul>
+     * </p>
+     *
+     * <p>If not specified, direct mapping is used (JSON key = column name).</p>
+     */
+    private String jsonPath;
+
+    /**
      * Whether this column is required (not null)
      */
     private boolean required = false;
