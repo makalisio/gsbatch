@@ -24,18 +24,22 @@ public class GenericItemReaderFactory {
     private final CsvGenericItemReaderBuilder csvReaderBuilder;
     private final SqlGenericItemReaderBuilder sqlReaderBuilder;
     private final RestGenericItemReaderBuilder restReaderBuilder;
+    private final SoapGenericItemReaderBuilder soapReaderBuilder;
 
     /**
      * @param csvReaderBuilder  builder for CSV sources
      * @param sqlReaderBuilder  builder for SQL sources
      * @param restReaderBuilder builder for REST API sources
+     * @param soapReaderBuilder builder for SOAP WebService sources
      */
     public GenericItemReaderFactory(CsvGenericItemReaderBuilder csvReaderBuilder,
                                     SqlGenericItemReaderBuilder sqlReaderBuilder,
-                                    RestGenericItemReaderBuilder restReaderBuilder) {
+                                    RestGenericItemReaderBuilder restReaderBuilder,
+                                    SoapGenericItemReaderBuilder soapReaderBuilder) {
         this.csvReaderBuilder = csvReaderBuilder;
         this.sqlReaderBuilder = sqlReaderBuilder;
         this.restReaderBuilder = restReaderBuilder;
+        this.soapReaderBuilder = soapReaderBuilder;
         log.info("GenericItemReaderFactory initialized");
     }
 
@@ -71,6 +75,9 @@ public class GenericItemReaderFactory {
             case "REST":
                 return restReaderBuilder.build(config, jobParameters);
             
+            case "SOAP":
+                return soapReaderBuilder.build(config, jobParameters);
+            
             case "JSON":
                 throw new UnsupportedOperationException(
                     "JSON reader not yet implemented for source: " + config.getName()
@@ -83,7 +90,7 @@ public class GenericItemReaderFactory {
             
             default:
                 String errorMsg = String.format(
-                    "Unsupported source type '%s' for source: %s. Supported types: CSV, SQL, REST",
+                    "Unsupported source type '%s' for source: %s. Supported types: CSV, SQL, REST, SOAP",
                     type, config.getName()
                 );
                 log.error(errorMsg);

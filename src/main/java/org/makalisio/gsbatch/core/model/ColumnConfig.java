@@ -38,9 +38,9 @@ public class ColumnConfig {
 
     /**
      * JsonPath expression for extracting this field from JSON (REST sources only).
-     *
+     * 
      * <p>Used when the JSON key differs from the column name or when extracting nested values.</p>
-     *
+     * 
      * <p>Examples:
      * <ul>
      *   <li>{@code $.orderId} - Simple field mapping (JSON key is 'orderId')</li>
@@ -48,10 +48,27 @@ public class ColumnConfig {
      *   <li>{@code $.pricing.totalAmount} - Deeply nested field</li>
      * </ul>
      * </p>
-     *
+     * 
      * <p>If not specified, direct mapping is used (JSON key = column name).</p>
      */
     private String jsonPath;
+
+    /**
+     * XPath expression for extracting this field from XML (SOAP sources only).
+     * 
+     * <p>Used to extract values from SOAP/XML responses.</p>
+     * 
+     * <p>Examples:
+     * <ul>
+     *   <li>{@code ./tradeId/text()} - Text content of &lt;tradeId&gt; element</li>
+     *   <li>{@code ./counterparty/name/text()} - Nested element</li>
+     *   <li>{@code ./@id} - Attribute value</li>
+     * </ul>
+     * </p>
+     * 
+     * <p>XPath is evaluated relative to each item node extracted by soap.dataPath.</p>
+     */
+    private String xpath;
 
     /**
      * Whether this column is required (not null)

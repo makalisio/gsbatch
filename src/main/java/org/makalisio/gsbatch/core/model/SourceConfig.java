@@ -113,6 +113,23 @@ public class SourceConfig {
         return rest != null;
     }
 
+    // ── SOAP WEBSERVICE CONFIGURATION ────────────────────────────────────────
+
+    /**
+     * SOAP WebService configuration (required when type=SOAP).
+     * Contains endpoint, authentication, and XPath extraction settings.
+     */
+    private SoapConfig soap;
+
+    /**
+     * Indicates if this source has SOAP configuration.
+     *
+     * @return {@code true} if {@code soap} is defined
+     */
+    public boolean hasSoapConfig() {
+        return soap != null;
+    }
+
     // ── STEPS PRE/POST PROCESSING ────────────────────────────────────────────
 
     /**
@@ -215,6 +232,14 @@ public class SourceConfig {
                 throw new IllegalStateException("rest configuration is required for REST source: " + name);
             }
             rest.validate();
+        }
+
+        // ── Validation SOAP ──────────────────────────────────────────────────
+        if ("SOAP".equalsIgnoreCase(type)) {
+            if (soap == null) {
+                throw new IllegalStateException("soap configuration is required for SOAP source: " + name);
+            }
+            soap.validate();
         }
         
         if (chunkSize != null && chunkSize <= 0) {
