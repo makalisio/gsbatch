@@ -163,13 +163,27 @@ public class SoapConfig {
 
     /**
      * XPath expression to extract the array of items from the SOAP response.
-     * 
+     *
      * <p>Example: "//GetTradesResponse/trades/trade" extracts all &lt;trade&gt; nodes.</p>
-     * 
+     *
      * <p>The XPath is evaluated against the entire SOAP response (including envelope).
      * Each matching node becomes one item.</p>
      */
     private String dataPath;
+
+    /**
+     * Whether the XML parser should be namespace-aware.
+     *
+     * <p>Set to {@code false} when the SOAP service returns elements with a default namespace
+     * (e.g., {@code <AddResponse xmlns="http://tempuri.org/">}) and the XPath expressions
+     * should match element local-names directly without namespace qualification.</p>
+     *
+     * <p>Example: with {@code namespaceAware: false}, {@code dataPath: //AddResponse}
+     * matches {@code <AddResponse xmlns="http://tempuri.org/">} without any XPath workaround.</p>
+     *
+     * <p>Default: {@code true} (standard namespace-aware behaviour).</p>
+     */
+    private boolean namespaceAware = true;
 
     // ── HTTP SETTINGS ────────────────────────────────────────────────────────
 

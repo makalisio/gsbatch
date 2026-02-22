@@ -48,6 +48,14 @@ public class GenericItemProcessorFactory {
         String sourceName = config.getName();
         String beanName = sourceName + "Processor";
 
+        // Fallback: try camelCase (e.g., "calculatorSoapProcessor") when sourceName contains hyphens
+        if (!applicationContext.containsBean(beanName) && sourceName.contains("-")) {
+            String camelCaseBeanName = toCamelCase(sourceName) + "Processor";
+            if (applicationContext.containsBean(camelCaseBeanName)) {
+                beanName = camelCaseBeanName;
+            }
+        }
+
         log.debug("Looking for processor bean: {}", beanName);
 
         if (!applicationContext.containsBean(beanName)) {
@@ -77,5 +85,21 @@ public class GenericItemProcessorFactory {
                 (ItemProcessor<GenericRecord, GenericRecord>) bean;
 
         return processor;
+    }
+
+    /**
+     * Converts a hyphenated name to lowerCamelCase.
+     * Example: "calculator-soap" → "calculatorSoap"
+     */
+    private static String toCamelCase(String hyphenated) {
+        String[] parts = hyphenated.split("-");
+        StringBuilder sb = new StringBuilder(parts[0]);
+        for (int i = 1; i < parts.length; i++) {
+            if (!parts[i].isEmpty()) {
+                sb.append(Character.toUpperCase(parts[i].charAt(0)));
+                sb.append(parts[i].substring(1));
+            }
+        }
+        return sb.toString();
     }
 }

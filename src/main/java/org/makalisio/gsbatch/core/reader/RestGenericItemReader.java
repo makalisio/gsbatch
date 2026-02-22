@@ -1,5 +1,6 @@
 package org.makalisio.gsbatch.core.reader;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.Configuration;
 import com.jayway.jsonpath.JsonPath;
 import com.jayway.jsonpath.Option;
@@ -46,6 +47,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
 
     private static final Pattern BIND_PARAM_PATTERN = Pattern.compile("(?<![:])(:[a-zA-Z][a-zA-Z0-9_]*)");
     private static final Pattern ENV_VAR_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final SourceConfig sourceConfig;
     private final RestConfig restConfig;
@@ -346,6 +348,16 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
         try {
             switch (type) {
                 case "STRING":
+                    // Map/List from JSON must be serialized as valid JSON, not via toString()
+                    if (value instanceof Map || value instanceof List) {
+                        try {
+                            return OBJECT_MAPPER.writeValueAsString(value);
+                        } catch (Exception e) {
+                            log.warn("Failed to serialize JSON value for column {}: {}",
+                                    column.getName(), e.getMessage());
+                            return value.toString();
+                        }
+                    }
                     return value.toString();
 
                 case "INTEGER":

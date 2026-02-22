@@ -116,6 +116,12 @@
             <version>2.9.0</version>
         </dependency>
 
+        <!-- Jackson for JSON serialization of nested objects (Map/List → valid JSON string) -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
         <!-- Spring Web (RestTemplate support) -->
         <!-- Already included transitively via spring-boot-starter, but declared explicitly -->
         <dependency>

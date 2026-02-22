@@ -287,7 +287,7 @@ public class SoapGenericItemReader implements ItemStreamReader<GenericRecord> {
 
     private Document parseXml(String xml) throws Exception {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-        factory.setNamespaceAware(true);
+        factory.setNamespaceAware(soapConfig.isNamespaceAware());
         DocumentBuilder builder = factory.newDocumentBuilder();
         return builder.parse(new InputSource(new StringReader(xml)));
     }
