@@ -5,8 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.SourceConfig;
 import org.springframework.batch.item.ItemStreamReader;
-import org.springframework.batch.item.database.JdbcCursorItemReader;
-import java.util.Collections;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
