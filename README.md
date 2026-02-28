@@ -684,70 +684,52 @@ Les readers, processors et writers doivent être `@StepScope` pour activer la r�
 
 ## 7. Tests
 
-Stack : JUnit 5 · Mockito · AssertJ · `@SpringBatchTest`
+Stack : JUnit 5 · Mockito 5 · AssertJ — tests unitaires purs, sans contexte Spring.
 
-### Test unitaire d'un reader
+```bash
+# Lancer les tests
+mvn test
 
-```java
-@SpringBatchTest
-@SpringBootTest
-class CsvGenericItemReaderBuilderTest {
-
-    @Autowired
-    private CsvGenericItemReaderBuilder builder;
-
-    @Test
-    void shouldReadCsvFile() throws Exception {
-        SourceConfig config = createTestConfig();
-        FlatFileItemReader<GenericRecord> reader = builder.build(config);
-        reader.open(new ExecutionContext());
-
-        GenericRecord record = reader.read();
-
-        assertThat(record).isNotNull();
-        assertThat(record.getString("tradeId")).isEqualTo("T001");
-
-        reader.close();
-    }
-}
+# Résultat actuel
+Tests run: 168, Failures: 0, Errors: 0, Skipped: 0
 ```
 
-### Test d'intégration complet
+### Suite de tests
 
-```java
-@SpringBatchTest
-@SpringBootTest
-class GenericIngestionJobIT {
+| Classe de test | Tests | Composant couvert |
+|----------------|-------|-------------------|
+| `GenericRecordTest` | 23 | Conteneur de données, conversions de types |
+| `SourceConfigTest` | 26 | Validation YAML (CSV, SQL, REST, SOAP, chunkSize) |
+| `WriterConfigTest` | 14 | Validation writer (type, onError, skipLimit) |
+| `StepConfigTest` | 11 | Validation pre/post processing |
+| `ColumnConfigTest` | 6 | Validation colonne |
+| `SqlFileLoaderTest` | 17 | Chargement SQL, bind vars, commentaires, cast PG `::` |
+| `YamlSourceConfigLoaderTest` | 8 | Chargement YAML, protection path traversal |
+| `GenericItemReaderFactoryTest` | 12 | Dispatch CSV/SQL/REST/SOAP, types inconnus |
+| `GenericItemProcessorFactoryTest` | 7 | Pass-through, bean custom, nommage camelCase |
+| `GenericItemWriterFactoryTest` | 10 | SQL/JAVA déclaratif, convention bean, camelCase |
+| `SqlGenericItemWriterTest` | 4 | Écriture batch, chunk vide |
+| `GenericTaskletTest` | 8 | Disabled, SQL, JAVA, type inconnu |
 
-    @Autowired
-    private JobLauncherTestUtils jobLauncherTestUtils;
+### Couverture de code
 
-    @Test
-    void shouldIngestTradesSuccessfully() throws Exception {
-        JobParameters params = new JobParametersBuilder()
-            .addString("sourceName", "trades")
-            .addLong("timestamp", System.currentTimeMillis())
-            .toJobParameters();
+Rapport complet : [`coverage/index.html`](coverage/index.html)
+Généré avec : `mvn clean verify -P coverage`
 
-        JobExecution execution = jobLauncherTestUtils.launchJob(params);
+| Package | Lignes | Couverture |
+|---------|--------|------------|
+| `processor` | 35/35 | **100 %** |
+| `tasklet` | 62/64 | **97 %** |
+| `writer` | 90/94 | **96 %** |
+| `config` | 35/52 | 67 % |
+| `model` | 199/329 | 60 % |
+| `exception` | 2/4 | 50 % |
+| `reader` | 120/804 | 15 % |
+| `job` | 0/64 | 0 % |
+| **Total** | **543/1 446** | **38 %** |
 
-        assertThat(execution.getStatus()).isEqualTo(BatchStatus.COMPLETED);
-        StepExecution step = execution.getStepExecutions().iterator().next();
-        assertThat(step.getReadCount()).isEqualTo(5);
-        assertThat(step.getWriteCount()).isEqualTo(5);
-    }
-}
-```
-
-### Tests recommandés
-
-| Classe | Cas à couvrir |
-|--------|--------------|
-| `YamlSourceConfigLoaderTest` | Config valide, fichier manquant, YAML invalide, validation, cache |
-| `CsvGenericItemReaderBuilderTest` | Lecture valide, fichier manquant, colonnes manquantes |
-| `GenericRecordTest` | Put/Get, conversions de type, immutabilité de `getValues()` |
-| `FactoriesTest` | Bean existant, bean manquant, mauvais type |
-| `GenericIngestionJobIT` | Job complet CSV → base, gestion erreurs, rollback |
+**`reader` (15 %) :** les builders CSV/SQL/REST/SOAP et les readers HTTP nécessiteraient un vrai filesystem, une base de données ou un serveur HTTP mock — tests d'intégration à prévoir.
+**`job` (0 %) :** `GenericIngestionJobConfig` requiert un contexte Spring Batch complet (`@SpringBatchTest` + H2) — tests d'intégration à prévoir.
 
 ---
 
@@ -774,8 +756,8 @@ mvn clean install
 # Sans tests
 mvn clean install -DskipTests
 
-# Rapport de couverture (target/site/jacoco/index.html)
-mvn clean verify -P coverage
+# Rapport de couverture (coverage/index.html)
+mvn clean verify -P coverage && cp -r target/site/jacoco coverage
 
 # Build production (vérifie l'absence de dépendances SNAPSHOT)
 mvn install -P prod
