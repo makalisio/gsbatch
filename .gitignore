@@ -41,4 +41,5 @@ build/
 ### Dependabot watcher (runtime) ###
 .watch-dependabot.log
 .watch-dependabot-applied
+.watch-dependabot-launcher.vbs
 .watch-jackson.log
