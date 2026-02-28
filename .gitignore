@@ -38,6 +38,9 @@ build/
 ### Mac OS ###
 .DS_Store
 
+### Rapport de couverture JaCoCo (généré) ###
+coverage/
+
 ### Dependabot watcher (runtime) ###
 .watch-dependabot.log
 .watch-dependabot-applied
