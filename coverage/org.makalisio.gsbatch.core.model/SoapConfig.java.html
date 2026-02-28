@@ -1,0 +1,294 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SoapConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gsbatch</a> &gt; <a href="index.source.html" class="el_package">org.makalisio.gsbatch.core.model</a> &gt; <span class="el_source">SoapConfig.java</span></div><h1>SoapConfig.java</h1><pre class="source lang-java linenums">package org.makalisio.gsbatch.core.model;
+
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
+
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * SOAP WebService configuration for the YAML source.
+ *
+ * &lt;p&gt;Supports SOAP 1.1/1.2 calls with WS-Security UsernameToken authentication 
+ * and XPath extraction. No pagination support (all data returned in single call).&lt;/p&gt;
+ *
+ * &lt;h2&gt;Example YAML&lt;/h2&gt;
+ * &lt;pre&gt;
+ * soap:
+ *   endpoint: https://api.bank.com/TradeService
+ *   soapAction: &quot;http://bank.com/GetTrades&quot;
+ *   soapVersion: &quot;1.1&quot;
+ *   requestTemplate: |
+ *     &amp;lt;soapenv:Envelope xmlns:soapenv=&quot;http://schemas.xmlsoap.org/soap/envelope/&quot;
+ *                       xmlns:tns=&quot;http://bank.com/TradeService&quot;&amp;gt;
+ *       &amp;lt;soapenv:Body&amp;gt;
+ *         &amp;lt;tns:GetTrades&amp;gt;
+ *           &amp;lt;tns:tradeDate&amp;gt;:tradeDate&amp;lt;/tns:tradeDate&amp;gt;
+ *           &amp;lt;tns:status&amp;gt;:status&amp;lt;/tns:status&amp;gt;
+ *         &amp;lt;/tns:GetTrades&amp;gt;
+ *       &amp;lt;/soapenv:Body&amp;gt;
+ *     &amp;lt;/soapenv:Envelope&amp;gt;
+ *   requestParams:
+ *     tradeDate: :process_date
+ *     status: :status
+ *   auth:
+ *     type: WS_SECURITY
+ *     username: ${SOAP_USERNAME}
+ *     password: ${SOAP_PASSWORD}
+ *     passwordType: PasswordText
+ *   dataPath: //GetTradesResponse/trades/trade
+ * &lt;/pre&gt;
+ *
+ * @author Makalisio
+ * @since 0.0.1
+ */
+@Getter
+<span class="nc" id="L48">@Setter</span>
+<span class="fc" id="L49">@NoArgsConstructor</span>
+<span class="nc" id="L50">@ToString</span>
+public class SoapConfig {
+
+    // ── SOAP ENDPOINT ────────────────────────────────────────────────────────
+
+    /**
+     * SOAP endpoint URL.
+     * Example: &quot;https://api.bank.com/TradeService&quot;
+     */
+<span class="nc" id="L59">    private String endpoint;</span>
+
+    /**
+     * SOAPAction HTTP header value (required for SOAP 1.1, optional for 1.2).
+     * Example: &quot;http://bank.com/GetTrades&quot;
+     */
+<span class="nc" id="L65">    private String soapAction;</span>
+
+    /**
+     * SOAP version: &quot;1.1&quot; or &quot;1.2&quot;.
+     * Default: &quot;1.1&quot;
+     */
+<span class="pc" id="L71">    private String soapVersion = &quot;1.1&quot;;</span>
+
+    /**
+     * WSDL URL (optional, for documentation purposes only).
+     * Not used during execution.
+     */
+<span class="nc" id="L77">    private String wsdl;</span>
+
+    // ── REQUEST TEMPLATE ─────────────────────────────────────────────────────
+
+    /**
+     * SOAP request template as inline XML string (Q1: B).
+     * 
+     * &lt;p&gt;Supports bind variables in the format :paramName which are resolved from jobParameters.&lt;/p&gt;
+     * 
+     * &lt;p&gt;Namespaces must be hardcoded in the template (Q2: A).&lt;/p&gt;
+     * 
+     * &lt;p&gt;Example:&lt;/p&gt;
+     * &lt;pre&gt;
+     * &amp;lt;soapenv:Envelope xmlns:soapenv=&quot;http://schemas.xmlsoap.org/soap/envelope/&quot;
+     *                   xmlns:tns=&quot;http://bank.com/TradeService&quot;&amp;gt;
+     *   &amp;lt;soapenv:Body&amp;gt;
+     *     &amp;lt;tns:GetTrades&amp;gt;
+     *       &amp;lt;tns:tradeDate&amp;gt;:tradeDate&amp;lt;/tns:tradeDate&amp;gt;
+     *       &amp;lt;tns:status&amp;gt;:status&amp;lt;/tns:status&amp;gt;
+     *     &amp;lt;/tns:GetTrades&amp;gt;
+     *   &amp;lt;/soapenv:Body&amp;gt;
+     * &amp;lt;/soapenv:Envelope&amp;gt;
+     * &lt;/pre&gt;
+     */
+<span class="nc" id="L101">    private String requestTemplate;</span>
+
+    /**
+     * Request parameters to bind in the template.
+     * 
+     * &lt;p&gt;Keys are parameter names as they appear in the template (:paramName).&lt;/p&gt;
+     * &lt;p&gt;Values can be static strings or bind variables from jobParameters.&lt;/p&gt;
+     * 
+     * &lt;p&gt;Example: {tradeDate: &quot;:process_date&quot;, status: &quot;:status&quot;}&lt;/p&gt;
+     */
+<span class="pc" id="L111">    private Map&lt;String, String&gt; requestParams = new HashMap&lt;&gt;();</span>
+
+    // ── AUTHENTICATION ───────────────────────────────────────────────────────
+
+    /**
+     * Authentication configuration.
+     */
+<span class="pc" id="L118">    private AuthConfig auth = new AuthConfig();</span>
+
+    @Getter
+<span class="nc" id="L121">    @Setter</span>
+<span class="fc" id="L122">    @NoArgsConstructor</span>
+<span class="nc" id="L123">    @ToString</span>
+    public static class AuthConfig {
+        /**
+         * Authentication type: NONE | BASIC | WS_SECURITY | CUSTOM_HEADER.
+         * Default: NONE.
+         */
+<span class="pc" id="L129">        private String type = &quot;NONE&quot;;</span>
+
+        /**
+         * Username for authentication.
+         * Supports ${VAR} syntax for environment variable resolution.
+         */
+<span class="nc" id="L135">        private String username;</span>
+
+        /**
+         * Password for authentication.
+         * Supports ${VAR} syntax for environment variable resolution.
+         */
+<span class="nc" id="L141">        private String password;</span>
+
+        /**
+         * WS-Security password type: PasswordText | PasswordDigest.
+         * Default: PasswordText (Q5: Level 1 - simple UsernameToken).
+         * Only used when type=WS_SECURITY.
+         */
+<span class="pc" id="L148">        private String passwordType = &quot;PasswordText&quot;;</span>
+
+        /**
+         * Custom header name (used when type=CUSTOM_HEADER).
+         */
+<span class="nc" id="L153">        private String headerName;</span>
+
+        /**
+         * Custom header value (used when type=CUSTOM_HEADER).
+         * Supports ${VAR} syntax.
+         */
+<span class="nc" id="L159">        private String headerValue;</span>
+    }
+
+    // ── XML EXTRACTION ───────────────────────────────────────────────────────
+
+    /**
+     * XPath expression to extract the array of items from the SOAP response.
+     *
+     * &lt;p&gt;Example: &quot;//GetTradesResponse/trades/trade&quot; extracts all &amp;lt;trade&amp;gt; nodes.&lt;/p&gt;
+     *
+     * &lt;p&gt;The XPath is evaluated against the entire SOAP response (including envelope).
+     * Each matching node becomes one item.&lt;/p&gt;
+     */
+<span class="nc" id="L172">    private String dataPath;</span>
+
+    /**
+     * Whether the XML parser should be namespace-aware.
+     *
+     * &lt;p&gt;Set to {@code false} when the SOAP service returns elements with a default namespace
+     * (e.g., {@code &lt;AddResponse xmlns=&quot;http://tempuri.org/&quot;&gt;}) and the XPath expressions
+     * should match element local-names directly without namespace qualification.&lt;/p&gt;
+     *
+     * &lt;p&gt;Example: with {@code namespaceAware: false}, {@code dataPath: //AddResponse}
+     * matches {@code &lt;AddResponse xmlns=&quot;http://tempuri.org/&quot;&gt;} without any XPath workaround.&lt;/p&gt;
+     *
+     * &lt;p&gt;Default: {@code true} (standard namespace-aware behaviour).&lt;/p&gt;
+     */
+<span class="pc" id="L186">    private boolean namespaceAware = true;</span>
+
+    // ── HTTP SETTINGS ────────────────────────────────────────────────────────
+
+    /**
+     * HTTP connection timeout in milliseconds.
+     * Default: 30000 (30 seconds).
+     */
+<span class="pc" id="L194">    private int connectionTimeout = 30000;</span>
+
+    /**
+     * HTTP read timeout in milliseconds.
+     * Default: 60000 (60 seconds).
+     */
+<span class="pc" id="L200">    private int readTimeout = 60000;</span>
+
+    // ── VALIDATION ───────────────────────────────────────────────────────────
+
+    /**
+     * Validates the SOAP configuration.
+     *
+     * @throws IllegalStateException if the configuration is invalid
+     */
+    public void validate() {
+<span class="nc bnc" id="L210" title="All 4 branches missed.">        if (endpoint == null || endpoint.isBlank()) {</span>
+<span class="nc" id="L211">            throw new IllegalStateException(&quot;soap.endpoint is required&quot;);</span>
+        }
+
+<span class="nc bnc" id="L214" title="All 4 branches missed.">        if (!endpoint.startsWith(&quot;http://&quot;) &amp;&amp; !endpoint.startsWith(&quot;https://&quot;)) {</span>
+<span class="nc" id="L215">            throw new IllegalStateException(</span>
+                &quot;soap.endpoint must start with http:// or https://, got: &quot; + endpoint);
+        }
+
+<span class="nc bnc" id="L219" title="All 4 branches missed.">        if (soapVersion == null || soapVersion.isBlank()) {</span>
+<span class="nc" id="L220">            throw new IllegalStateException(&quot;soap.soapVersion is required&quot;);</span>
+        }
+
+<span class="nc bnc" id="L223" title="All 4 branches missed.">        if (!&quot;1.1&quot;.equals(soapVersion) &amp;&amp; !&quot;1.2&quot;.equals(soapVersion)) {</span>
+<span class="nc" id="L224">            throw new IllegalStateException(</span>
+                &quot;soap.soapVersion must be '1.1' or '1.2', got: &quot; + soapVersion);
+        }
+
+<span class="nc bnc" id="L228" title="All 6 branches missed.">        if (&quot;1.1&quot;.equals(soapVersion) &amp;&amp; (soapAction == null || soapAction.isBlank())) {</span>
+<span class="nc" id="L229">            throw new IllegalStateException(</span>
+                &quot;soap.soapAction is required for SOAP 1.1&quot;);
+        }
+
+<span class="nc bnc" id="L233" title="All 4 branches missed.">        if (requestTemplate == null || requestTemplate.isBlank()) {</span>
+<span class="nc" id="L234">            throw new IllegalStateException(&quot;soap.requestTemplate is required&quot;);</span>
+        }
+
+<span class="nc bnc" id="L237" title="All 2 branches missed.">        if (!requestTemplate.contains(&quot;&lt;soapenv:Envelope&quot;) &amp;&amp; </span>
+<span class="nc bnc" id="L238" title="All 2 branches missed.">            !requestTemplate.contains(&quot;&lt;soap:Envelope&quot;) &amp;&amp;</span>
+<span class="nc bnc" id="L239" title="All 2 branches missed.">            !requestTemplate.contains(&quot;&lt;SOAP-ENV:Envelope&quot;)) {</span>
+<span class="nc" id="L240">            throw new IllegalStateException(</span>
+                &quot;soap.requestTemplate must be a valid SOAP envelope (missing &lt;soapenv:Envelope&gt;, &lt;soap:Envelope&gt;, or &lt;SOAP-ENV:Envelope&gt;)&quot;);
+        }
+
+<span class="nc bnc" id="L244" title="All 4 branches missed.">        if (dataPath == null || dataPath.isBlank()) {</span>
+<span class="nc" id="L245">            throw new IllegalStateException(&quot;soap.dataPath is required&quot;);</span>
+        }
+
+        // Validate auth
+<span class="nc" id="L249">        String authType = auth.getType().toUpperCase();</span>
+<span class="nc bnc" id="L250" title="All 2 branches missed.">        if (!java.util.List.of(&quot;NONE&quot;, &quot;BASIC&quot;, &quot;WS_SECURITY&quot;, &quot;CUSTOM_HEADER&quot;).contains(authType)) {</span>
+<span class="nc" id="L251">            throw new IllegalStateException(</span>
+                &quot;soap.auth.type must be NONE, BASIC, WS_SECURITY, or CUSTOM_HEADER, got: &quot; + authType);
+        }
+
+<span class="nc bnc" id="L255" title="All 4 branches missed.">        if (&quot;BASIC&quot;.equals(authType) || &quot;WS_SECURITY&quot;.equals(authType)) {</span>
+<span class="nc bnc" id="L256" title="All 4 branches missed.">            if (auth.getUsername() == null || auth.getUsername().isBlank()) {</span>
+<span class="nc" id="L257">                throw new IllegalStateException(</span>
+                    &quot;soap.auth.username is required when type=&quot; + authType);
+            }
+<span class="nc bnc" id="L260" title="All 4 branches missed.">            if (auth.getPassword() == null || auth.getPassword().isBlank()) {</span>
+<span class="nc" id="L261">                throw new IllegalStateException(</span>
+                    &quot;soap.auth.password is required when type=&quot; + authType);
+            }
+        }
+
+<span class="nc bnc" id="L266" title="All 2 branches missed.">        if (&quot;WS_SECURITY&quot;.equals(authType)) {</span>
+<span class="nc" id="L267">            String passwordType = auth.getPasswordType();</span>
+<span class="nc bnc" id="L268" title="All 4 branches missed.">            if (!&quot;PasswordText&quot;.equals(passwordType) &amp;&amp; !&quot;PasswordDigest&quot;.equals(passwordType)) {</span>
+<span class="nc" id="L269">                throw new IllegalStateException(</span>
+                    &quot;soap.auth.passwordType must be 'PasswordText' or 'PasswordDigest', got: &quot; + passwordType);
+            }
+        }
+
+<span class="nc bnc" id="L274" title="All 2 branches missed.">        if (&quot;CUSTOM_HEADER&quot;.equals(authType)) {</span>
+<span class="nc bnc" id="L275" title="All 4 branches missed.">            if (auth.getHeaderName() == null || auth.getHeaderName().isBlank()) {</span>
+<span class="nc" id="L276">                throw new IllegalStateException(</span>
+                    &quot;soap.auth.headerName is required when type=CUSTOM_HEADER&quot;);
+            }
+<span class="nc bnc" id="L279" title="All 4 branches missed.">            if (auth.getHeaderValue() == null || auth.getHeaderValue().isBlank()) {</span>
+<span class="nc" id="L280">                throw new IllegalStateException(</span>
+                    &quot;soap.auth.headerValue is required when type=CUSTOM_HEADER&quot;);
+            }
+        }
+
+<span class="nc bnc" id="L285" title="All 2 branches missed.">        if (connectionTimeout &lt;= 0) {</span>
+<span class="nc" id="L286">            throw new IllegalStateException(&quot;soap.connectionTimeout must be positive&quot;);</span>
+        }
+
+<span class="nc bnc" id="L289" title="All 2 branches missed.">        if (readTimeout &lt;= 0) {</span>
+<span class="nc" id="L290">            throw new IllegalStateException(&quot;soap.readTimeout must be positive&quot;);</span>
+        }
+<span class="nc" id="L292">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

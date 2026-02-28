@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GenericItemProcessorFactory.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gsbatch</a> &gt; <a href="index.source.html" class="el_package">org.makalisio.gsbatch.core.processor</a> &gt; <span class="el_source">GenericItemProcessorFactory.java</span></div><h1>GenericItemProcessorFactory.java</h1><pre class="source lang-java linenums">// org.makalisio.gsbatch.core.processor.GenericItemProcessorFactory
+package org.makalisio.gsbatch.core.processor;
+
+import lombok.extern.slf4j.Slf4j;
+import org.makalisio.gsbatch.core.model.GenericRecord;
+import org.makalisio.gsbatch.core.model.SourceConfig;
+import org.springframework.batch.item.ItemProcessor;
+import org.springframework.context.ApplicationContext;
+import org.springframework.stereotype.Component;
+
+/**
+ * Factory for creating ItemProcessors.
+ * Looks for custom processor beans in the Spring context.
+ * If no custom processor is found, returns a pass-through processor.
+ *
+ * @author Makalisio
+ * @since 0.0.1
+ */
+<span class="fc" id="L19">@Slf4j</span>
+@Component
+public class GenericItemProcessorFactory {
+
+    private final ApplicationContext applicationContext;
+
+    /**
+     * @param applicationContext the Spring context for finding business beans
+     */
+<span class="fc" id="L28">    public GenericItemProcessorFactory(ApplicationContext applicationContext) {</span>
+<span class="fc" id="L29">        this.applicationContext = applicationContext;</span>
+<span class="fc" id="L30">        log.info(&quot;GenericItemProcessorFactory initialized&quot;);</span>
+<span class="fc" id="L31">    }</span>
+
+    /**
+     * Builds an ItemProcessor for the given source configuration.
+     * Searches for a bean named &quot;{sourceName}Processor&quot;.
+     * If not found, returns a pass-through processor.
+     *
+     * @param config the source configuration
+     * @return configured ItemProcessor
+     * @throws IllegalArgumentException if config is null
+     * @throws IllegalStateException if the found bean is not an ItemProcessor
+     */
+    public ItemProcessor&lt;GenericRecord, GenericRecord&gt; buildProcessor(SourceConfig config) {
+<span class="fc bfc" id="L44" title="All 2 branches covered.">        if (config == null) {</span>
+<span class="fc" id="L45">            throw new IllegalArgumentException(&quot;SourceConfig cannot be null&quot;);</span>
+        }
+
+<span class="fc" id="L48">        String sourceName = config.getName();</span>
+<span class="fc" id="L49">        String beanName = sourceName + &quot;Processor&quot;;</span>
+
+        // Fallback: try camelCase (e.g., &quot;calculatorSoapProcessor&quot;) when sourceName contains hyphens
+<span class="fc bfc" id="L52" title="All 4 branches covered.">        if (!applicationContext.containsBean(beanName) &amp;&amp; sourceName.contains(&quot;-&quot;)) {</span>
+<span class="fc" id="L53">            String camelCaseBeanName = toCamelCase(sourceName) + &quot;Processor&quot;;</span>
+<span class="fc bfc" id="L54" title="All 2 branches covered.">            if (applicationContext.containsBean(camelCaseBeanName)) {</span>
+<span class="fc" id="L55">                beanName = camelCaseBeanName;</span>
+            }
+        }
+
+<span class="fc" id="L59">        log.debug(&quot;Looking for processor bean: {}&quot;, beanName);</span>
+
+<span class="fc bfc" id="L61" title="All 2 branches covered.">        if (!applicationContext.containsBean(beanName)) {</span>
+<span class="fc" id="L62">            log.debug(&quot;No custom processor found for source '{}', using pass-through processor&quot;, sourceName);</span>
+            // Return pass-through processor
+<span class="fc" id="L64">            return item -&gt; {</span>
+<span class="fc" id="L65">                log.trace(&quot;Pass-through processing record: {}&quot;, item);</span>
+<span class="fc" id="L66">                return item;</span>
+            };
+        }
+
+<span class="fc" id="L70">        Object bean = applicationContext.getBean(beanName);</span>
+
+<span class="fc bfc" id="L72" title="All 2 branches covered.">        if (!(bean instanceof ItemProcessor)) {</span>
+<span class="fc" id="L73">            String errorMsg = String.format(</span>
+                    &quot;Bean '%s' exists but is not an ItemProcessor. Actual type: %s&quot;,
+<span class="fc" id="L75">                    beanName, bean.getClass().getName()</span>
+            );
+<span class="fc" id="L77">            log.error(errorMsg);</span>
+<span class="fc" id="L78">            throw new IllegalStateException(errorMsg);</span>
+        }
+
+<span class="fc" id="L81">        log.info(&quot;Using custom processor bean '{}' for source '{}'&quot;, beanName, sourceName);</span>
+
+        @SuppressWarnings(&quot;unchecked&quot;)
+<span class="fc" id="L84">        ItemProcessor&lt;GenericRecord, GenericRecord&gt; processor =</span>
+                (ItemProcessor&lt;GenericRecord, GenericRecord&gt;) bean;
+
+<span class="fc" id="L87">        return processor;</span>
+    }
+
+    /**
+     * Converts a hyphenated name to lowerCamelCase.
+     * Example: &quot;calculator-soap&quot; → &quot;calculatorSoap&quot;
+     */
+    private static String toCamelCase(String hyphenated) {
+<span class="fc" id="L95">        String[] parts = hyphenated.split(&quot;-&quot;);</span>
+<span class="fc" id="L96">        StringBuilder sb = new StringBuilder(parts[0]);</span>
+<span class="fc bfc" id="L97" title="All 2 branches covered.">        for (int i = 1; i &lt; parts.length; i++) {</span>
+<span class="pc bpc" id="L98" title="1 of 2 branches missed.">            if (!parts[i].isEmpty()) {</span>
+<span class="fc" id="L99">                sb.append(Character.toUpperCase(parts[i].charAt(0)));</span>
+<span class="fc" id="L100">                sb.append(parts[i].substring(1));</span>
+            }
+        }
+<span class="fc" id="L103">        return sb.toString();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

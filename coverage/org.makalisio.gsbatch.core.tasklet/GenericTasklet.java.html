@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GenericTasklet.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gsbatch</a> &gt; <a href="index.source.html" class="el_package">org.makalisio.gsbatch.core.tasklet</a> &gt; <span class="el_source">GenericTasklet.java</span></div><h1>GenericTasklet.java</h1><pre class="source lang-java linenums">package org.makalisio.gsbatch.core.tasklet;
+
+import lombok.extern.slf4j.Slf4j;
+import org.makalisio.gsbatch.core.model.StepConfig;
+import org.makalisio.gsbatch.core.reader.SqlFileLoader;
+import org.springframework.batch.core.StepContribution;
+import org.springframework.batch.core.scope.context.ChunkContext;
+import org.springframework.batch.core.step.tasklet.Tasklet;
+import org.springframework.batch.repeat.RepeatStatus;
+import org.springframework.context.ApplicationContext;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import javax.sql.DataSource;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Generic tasklet driven by the YAML source configuration.
+ *
+ * &lt;p&gt;Used for pre-processing and post-processing steps.
+ * Behaviour is determined by the {@link StepConfig}:&lt;/p&gt;
+ *
+ * &lt;ul&gt;
+ *   &lt;li&gt;{@code enabled=false}  - no-op, returns {@code FINISHED} immediately&lt;/li&gt;
+ *   &lt;li&gt;{@code type=SQL}       - executes all statements from the SQL file
+ *                               within the &lt;b&gt;same transaction&lt;/b&gt; (managed by Spring Batch)&lt;/li&gt;
+ *   &lt;li&gt;{@code type=JAVA}      - delegates to the Spring bean named {@code beanName}
+ *                               (must implement {@code Tasklet})&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * &lt;h2&gt;Multi-statement SQL within the same transaction&lt;/h2&gt;
+ * &lt;p&gt;Spring Batch automatically starts a transaction before calling
+ * {@code execute()}. All SQL statements are executed within this
+ * transaction. In case of an exception, Spring Batch performs a rollback.&lt;/p&gt;
+ *
+ * &lt;pre&gt;
+ * -- pre_orders.sql: multiple statements in the same transaction
+ * UPDATE ORDERS SET status = 'PROCESSING'
+ * WHERE status = :status AND order_date = :process_date;
+ *
+ * INSERT INTO BATCH_LOG (source, process_date, action)
+ * VALUES ('orders', :process_date, 'PRE_PROCESSING_START');
+ * &lt;/pre&gt;
+ *
+ * @author Makalisio
+ * @since 0.0.1
+ */
+<span class="fc" id="L48">@Slf4j</span>
+public class GenericTasklet implements Tasklet {
+
+    private final StepConfig stepConfig;
+    private final Map&lt;String, Object&gt; jobParameters;
+    private final SqlFileLoader sqlFileLoader;
+    private final DataSource defaultDataSource;
+    private final ApplicationContext applicationContext;
+    private final String sourceName;
+
+    /**
+     * @param stepConfig         step configuration (pre or post)
+     * @param jobParameters      job parameters for SQL bind variables
+     * @param sqlFileLoader      SQL file loader
+     * @param defaultDataSource  primary DataSource
+     * @param applicationContext Spring context (for JAVA beans)
+     * @param sourceName         source name (for logging)
+     */
+    public GenericTasklet(StepConfig stepConfig,
+                          Map&lt;String, Object&gt; jobParameters,
+                          SqlFileLoader sqlFileLoader,
+                          DataSource defaultDataSource,
+                          ApplicationContext applicationContext,
+<span class="fc" id="L71">                          String sourceName) {</span>
+<span class="fc" id="L72">        this.stepConfig = stepConfig;</span>
+<span class="fc" id="L73">        this.jobParameters = jobParameters;</span>
+<span class="fc" id="L74">        this.sqlFileLoader = sqlFileLoader;</span>
+<span class="fc" id="L75">        this.defaultDataSource = defaultDataSource;</span>
+<span class="fc" id="L76">        this.applicationContext = applicationContext;</span>
+<span class="fc" id="L77">        this.sourceName = sourceName;</span>
+<span class="fc" id="L78">    }</span>
+
+    @Override
+    public RepeatStatus execute(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+
+<span class="fc bfc" id="L83" title="All 4 branches covered.">        if (stepConfig == null || !stepConfig.isEnabled()) {</span>
+<span class="fc" id="L84">            log.debug(&quot;Source '{}'  - step disabled, skipping&quot;, sourceName);</span>
+<span class="fc" id="L85">            return RepeatStatus.FINISHED;</span>
+        }
+
+<span class="fc" id="L88">        String type = stepConfig.getType();</span>
+<span class="fc" id="L89">        log.info(&quot;Source '{}'  - executing {} step (type={})&quot;,</span>
+                sourceName,
+<span class="fc" id="L91">                chunkContext.getStepContext().getStepName(),</span>
+                type);
+
+<span class="fc bfc" id="L94" title="All 2 branches covered.">        if (&quot;SQL&quot;.equalsIgnoreCase(type)) {</span>
+<span class="fc" id="L95">            executeSql(contribution);</span>
+<span class="fc bfc" id="L96" title="All 2 branches covered.">        } else if (&quot;JAVA&quot;.equalsIgnoreCase(type)) {</span>
+<span class="fc" id="L97">            executeJava(contribution, chunkContext);</span>
+        } else {
+<span class="fc" id="L99">            throw new IllegalStateException(</span>
+                &quot;Unknown step type: '&quot; + type + &quot;'. Accepted values: SQL, JAVA&quot;);
+        }
+
+<span class="fc" id="L103">        return RepeatStatus.FINISHED;</span>
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  SQL execution
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Executes all SQL statements from the file within the current transaction.
+     *
+     * &lt;p&gt;Statements are executed sequentially.
+     * The transaction is managed by Spring Batch (started before the call to {@code execute()}).
+     * A failure on any statement triggers a full rollback.&lt;/p&gt;
+     */
+    private void executeSql(StepContribution contribution) {
+<span class="fc" id="L118">        List&lt;SqlFileLoader.LoadedSql&gt; statements = sqlFileLoader.loadStatements(</span>
+<span class="fc" id="L119">                stepConfig.getSqlDirectory(),</span>
+<span class="fc" id="L120">                stepConfig.getSqlFile(),</span>
+                jobParameters
+        );
+
+<span class="fc bfc" id="L124" title="All 2 branches covered.">        if (statements.isEmpty()) {</span>
+<span class="fc" id="L125">            log.warn(&quot;Source '{}'  - no SQL statement found in {}/{}&quot;,</span>
+<span class="fc" id="L126">                    sourceName, stepConfig.getSqlDirectory(), stepConfig.getSqlFile());</span>
+<span class="fc" id="L127">            return;</span>
+        }
+
+<span class="fc" id="L130">        DataSource dataSource = resolveDataSource();</span>
+<span class="fc" id="L131">        JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);</span>
+
+<span class="fc" id="L133">        log.info(&quot;Source '{}'  - executing {} SQL statement(s) within the same transaction&quot;,</span>
+<span class="fc" id="L134">                sourceName, statements.size());</span>
+
+<span class="fc" id="L136">        int totalAffected = 0;</span>
+<span class="fc bfc" id="L137" title="All 2 branches covered.">        for (int i = 0; i &lt; statements.size(); i++) {</span>
+<span class="fc" id="L138">            SqlFileLoader.LoadedSql stmt = statements.get(i);</span>
+<span class="fc" id="L139">            log.debug(&quot;Source '{}'  - statement [{}/{}]: {}&quot;,</span>
+<span class="fc" id="L140">                    sourceName, i + 1, statements.size(),</span>
+<span class="fc" id="L141">                    abbreviate(stmt.getExecutableSql(), 120));</span>
+
+<span class="fc" id="L143">            int rowsAffected = jdbcTemplate.update(</span>
+<span class="fc" id="L144">                    stmt.getExecutableSql(),</span>
+<span class="fc" id="L145">                    stmt.getPreparedStatementSetter()</span>
+            );
+
+<span class="fc" id="L148">            log.debug(&quot;Source '{}'  - statement [{}/{}]: {} row(s) affected&quot;,</span>
+<span class="fc" id="L149">                    sourceName, i + 1, statements.size(), rowsAffected);</span>
+
+<span class="fc" id="L151">            totalAffected += rowsAffected;</span>
+<span class="fc" id="L152">            contribution.incrementWriteCount(rowsAffected);</span>
+        }
+
+<span class="fc" id="L155">        log.info(&quot;Source '{}'  - {} statement(s) executed, {} row(s) affected in total&quot;,</span>
+<span class="fc" id="L156">                sourceName, statements.size(), totalAffected);</span>
+<span class="fc" id="L157">    }</span>
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Java delegation
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Delegates execution to the Spring bean named {@code stepConfig.beanName}.
+     * The bean must implement {@code Tasklet}.
+     */
+    private void executeJava(StepContribution contribution, ChunkContext chunkContext) throws Exception {
+<span class="fc" id="L168">        String beanName = stepConfig.getBeanName();</span>
+<span class="fc" id="L169">        log.info(&quot;Source '{}'  - delegating to Java bean: '{}'&quot;, sourceName, beanName);</span>
+
+<span class="fc bfc" id="L171" title="All 2 branches covered.">        if (!applicationContext.containsBean(beanName)) {</span>
+<span class="fc" id="L172">            throw new IllegalStateException(String.format(</span>
+                &quot;Bean '%s' not found in the Spring context for source '%s'.%n&quot; +
+                &quot;Create a @Component(\&quot;%s\&quot;) implementing Tasklet in the backoffice.&quot;,
+                beanName, sourceName, beanName
+            ));
+        }
+
+<span class="fc" id="L179">        Tasklet delegate = applicationContext.getBean(beanName, Tasklet.class);</span>
+<span class="fc" id="L180">        RepeatStatus status = delegate.execute(contribution, chunkContext);</span>
+<span class="fc" id="L181">        log.info(&quot;Source '{}'  - bean '{}' executed with status: {}&quot;, sourceName, beanName, status);</span>
+<span class="fc" id="L182">    }</span>
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Resolves the DataSource to use (named or primary).
+     */
+    private DataSource resolveDataSource() {
+<span class="fc" id="L192">        String beanName = stepConfig.getDataSourceBean();</span>
+<span class="pc bpc" id="L193" title="3 of 4 branches missed.">        if (beanName != null &amp;&amp; !beanName.isBlank()) {</span>
+<span class="nc" id="L194">            log.debug(&quot;Source '{}'  - named DataSource: '{}'&quot;, sourceName, beanName);</span>
+<span class="nc" id="L195">            return applicationContext.getBean(beanName, DataSource.class);</span>
+        }
+<span class="fc" id="L197">        return defaultDataSource;</span>
+    }
+
+    /**
+     * Truncates a string for logging purposes.
+     */
+    private String abbreviate(String text, int maxLen) {
+<span class="pc bpc" id="L204" title="1 of 2 branches missed.">        if (text == null) return &quot;&quot;;</span>
+<span class="fc" id="L205">        text = text.replaceAll(&quot;\\s+&quot;, &quot; &quot;).trim();</span>
+<span class="pc bpc" id="L206" title="1 of 2 branches missed.">        return text.length() &lt;= maxLen ? text : text.substring(0, maxLen) + &quot;...&quot;;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

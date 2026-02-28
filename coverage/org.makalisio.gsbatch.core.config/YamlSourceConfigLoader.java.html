@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>YamlSourceConfigLoader.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gsbatch</a> &gt; <a href="index.source.html" class="el_package">org.makalisio.gsbatch.core.config</a> &gt; <span class="el_source">YamlSourceConfigLoader.java</span></div><h1>YamlSourceConfigLoader.java</h1><pre class="source lang-java linenums">// org.makalisio.gsbatch.core.config.YamlSourceConfigLoader
+package org.makalisio.gsbatch.core.config;
+
+import lombok.extern.slf4j.Slf4j;
+import org.makalisio.gsbatch.core.exception.ConfigurationLoadException;
+import org.makalisio.gsbatch.core.model.SourceConfig;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.ResourceLoader;
+import org.springframework.stereotype.Component;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.Constructor;
+import org.yaml.snakeyaml.LoaderOptions;
+
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+
+/**
+ * Loader responsible for loading source configurations from YAML files.
+ * Configuration files are expected to be located in the classpath under 'ingestion/{sourceName}.yml'.
+ *
+ * @author Makalisio
+ * @since 0.0.1
+ */
+<span class="fc" id="L26">@Slf4j</span>
+@Component
+public class YamlSourceConfigLoader {
+
+    private static final String CONFIG_PATH_TEMPLATE = &quot;classpath:ingestion/%s.yml&quot;;
+    private static final String INGESTION_DIR = &quot;ingestion/&quot;;
+
+    private final ResourceLoader resourceLoader;
+    private final Yaml yaml;
+
+    /**
+     * Constructs a YamlSourceConfigLoader with the specified ResourceLoader.
+     * Initializes a secure YAML parser.
+     *
+     * @param resourceLoader Spring's resource loader for accessing classpath resources
+     */
+<span class="fc" id="L42">    public YamlSourceConfigLoader(ResourceLoader resourceLoader) {</span>
+<span class="fc" id="L43">        this.resourceLoader = resourceLoader;</span>
+
+        // Configure SnakeYAML for safe deserialization (compatible with SnakeYAML 2.x)
+<span class="fc" id="L46">        LoaderOptions loaderOptions = new LoaderOptions();</span>
+<span class="fc" id="L47">        Constructor constructor = new Constructor(SourceConfig.class, loaderOptions);</span>
+
+<span class="fc" id="L49">        this.yaml = new Yaml(constructor);</span>
+
+<span class="fc" id="L51">        log.info(&quot;YamlSourceConfigLoader initialized&quot;);</span>
+<span class="fc" id="L52">    }</span>
+
+    /**
+     * Loads the ingestion configuration for the specified source.
+     * Results are cached to avoid repeated file I/O operations.
+     *
+     * @param sourceName the name of the source (without .yml extension)
+     * @return the loaded SourceConfig
+     * @throws ConfigurationLoadException if the configuration cannot be loaded or is invalid
+     * @throws IllegalArgumentException if sourceName is null or blank
+     */
+    @Cacheable(value = &quot;sourceConfigs&quot;, key = &quot;#sourceName&quot;)
+    public SourceConfig load(String sourceName) {
+<span class="fc" id="L65">        validateSourceName(sourceName);</span>
+
+<span class="fc" id="L67">        log.debug(&quot;Loading ingestion configuration for source: {}&quot;, sourceName);</span>
+
+<span class="fc" id="L69">        String path = String.format(CONFIG_PATH_TEMPLATE, sourceName);</span>
+<span class="fc" id="L70">        Resource resource = resourceLoader.getResource(path);</span>
+
+<span class="fc bfc" id="L72" title="All 2 branches covered.">        if (!resource.exists()) {</span>
+<span class="fc" id="L73">            String errorMsg = String.format(</span>
+                    &quot;No ingestion configuration found for source '%s'. Expected file: %s%s.yml&quot;,
+                    sourceName, INGESTION_DIR, sourceName
+            );
+<span class="fc" id="L77">            log.error(errorMsg);</span>
+<span class="fc" id="L78">            throw new ConfigurationLoadException(errorMsg);</span>
+        }
+
+<span class="fc" id="L81">        try (InputStream in = resource.getInputStream()) {</span>
+<span class="fc" id="L82">            SourceConfig config = yaml.loadAs(in, SourceConfig.class);</span>
+
+<span class="pc bpc" id="L84" title="1 of 2 branches missed.">            if (config == null) {</span>
+<span class="nc" id="L85">                throw new ConfigurationLoadException(</span>
+                        &quot;Configuration file is empty or invalid for source: &quot; + sourceName
+                );
+            }
+
+            // Set default name if not provided
+<span class="pc bpc" id="L91" title="3 of 4 branches missed.">            if (config.getName() == null || config.getName().isBlank()) {</span>
+<span class="fc" id="L92">                log.debug(&quot;Setting default name '{}' for source configuration&quot;, sourceName);</span>
+<span class="fc" id="L93">                config.setName(sourceName);</span>
+            }
+
+<span class="fc" id="L96">            validateConfig(config, sourceName);</span>
+
+            // Validate configuration structure
+<span class="fc" id="L99">            config.validate();</span>
+
+<span class="fc" id="L101">            log.info(&quot;Successfully loaded configuration for source: {} (name: {})&quot;,</span>
+<span class="fc" id="L102">                    sourceName, config.getName());</span>
+
+<span class="fc" id="L104">            return config;</span>
+
+<span class="nc" id="L106">        } catch (FileNotFoundException e) {</span>
+<span class="nc" id="L107">            String errorMsg = String.format(</span>
+                    &quot;Configuration file not found for source '%s' at path: %s&quot;,
+                    sourceName, path
+            );
+<span class="nc" id="L111">            log.error(errorMsg, e);</span>
+<span class="nc" id="L112">            throw new ConfigurationLoadException(errorMsg, e);</span>
+
+<span class="nc" id="L114">        } catch (IOException e) {</span>
+<span class="nc" id="L115">            String errorMsg = String.format(</span>
+                    &quot;Failed to read configuration file for source '%s'&quot;, sourceName
+            );
+<span class="nc" id="L118">            log.error(errorMsg, e);</span>
+<span class="nc" id="L119">            throw new ConfigurationLoadException(errorMsg, e);</span>
+
+<span class="nc" id="L121">        } catch (ConfigurationLoadException e) {</span>
+            // Re-throw configuration exceptions
+<span class="nc" id="L123">            throw e;</span>
+
+<span class="nc" id="L125">        } catch (Exception e) {</span>
+<span class="nc" id="L126">            String errorMsg = String.format(</span>
+                    &quot;Failed to parse YAML configuration for source '%s'&quot;, sourceName
+            );
+<span class="nc" id="L129">            log.error(errorMsg, e);</span>
+<span class="nc" id="L130">            throw new ConfigurationLoadException(errorMsg, e);</span>
+        }
+    }
+
+    /**
+     * Validates the source name parameter.
+     *
+     * @param sourceName the source name to validate
+     * @throws IllegalArgumentException if the source name is null or blank
+     */
+    private void validateSourceName(String sourceName) {
+<span class="fc bfc" id="L141" title="All 4 branches covered.">        if (sourceName == null || sourceName.isBlank()) {</span>
+<span class="fc" id="L142">            throw new IllegalArgumentException(&quot;Source name cannot be null or blank&quot;);</span>
+        }
+
+        // Validate for path traversal attacks
+<span class="fc bfc" id="L146" title="All 6 branches covered.">        if (sourceName.contains(&quot;..&quot;) || sourceName.contains(&quot;/&quot;) || sourceName.contains(&quot;\\&quot;)) {</span>
+<span class="fc" id="L147">            throw new IllegalArgumentException(</span>
+                    &quot;Source name contains invalid characters: &quot; + sourceName
+            );
+        }
+<span class="fc" id="L151">    }</span>
+
+    /**
+     * Validates the loaded configuration.
+     * Override or extend this method to add custom validation rules.
+     *
+     * @param config the configuration to validate
+     * @param sourceName the source name for error messages
+     * @throws ConfigurationLoadException if validation fails
+     */
+    protected void validateConfig(SourceConfig config, String sourceName) {
+<span class="pc bpc" id="L162" title="2 of 4 branches missed.">        if (config.getName() == null || config.getName().isBlank()) {</span>
+<span class="nc" id="L163">            throw new ConfigurationLoadException(</span>
+                    &quot;Configuration name is missing for source: &quot; + sourceName
+            );
+        }
+
+<span class="fc" id="L168">        log.debug(&quot;Configuration validation passed for source: {}&quot;, sourceName);</span>
+<span class="fc" id="L169">    }</span>
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

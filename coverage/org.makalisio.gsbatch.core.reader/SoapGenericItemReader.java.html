@@ -1,0 +1,385 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SoapGenericItemReader.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gsbatch</a> &gt; <a href="index.source.html" class="el_package">org.makalisio.gsbatch.core.reader</a> &gt; <span class="el_source">SoapGenericItemReader.java</span></div><h1>SoapGenericItemReader.java</h1><pre class="source lang-java linenums">package org.makalisio.gsbatch.core.reader;
+
+import lombok.extern.slf4j.Slf4j;
+import org.makalisio.gsbatch.core.model.ColumnConfig;
+import org.makalisio.gsbatch.core.model.GenericRecord;
+import org.makalisio.gsbatch.core.model.SoapConfig;
+import org.makalisio.gsbatch.core.model.SourceConfig;
+import org.springframework.batch.item.ItemStreamReader;
+import org.w3c.dom.Document;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
+
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.xpath.XPath;
+import javax.xml.xpath.XPathConstants;
+import javax.xml.xpath.XPathFactory;
+import java.io.StringReader;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * SOAP WebService ItemReader with XPath extraction.
+ *
+ * &lt;p&gt;Features:&lt;/p&gt;
+ * &lt;ul&gt;
+ *   &lt;li&gt;SOAP 1.1/1.2 support&lt;/li&gt;
+ *   &lt;li&gt;Bind variable resolution (:paramName from jobParameters)&lt;/li&gt;
+ *   &lt;li&gt;Environment variable resolution (${VAR})&lt;/li&gt;
+ *   &lt;li&gt;XPath extraction from SOAP response&lt;/li&gt;
+ *   &lt;li&gt;WS-Security UsernameToken authentication (PasswordText)&lt;/li&gt;
+ *   &lt;li&gt;Single call (no pagination - Q3: NONE)&lt;/li&gt;
+ *   &lt;li&gt;SOAP Fault causes immediate failure (Q4: B)&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * @author Makalisio
+ * @since 0.0.1
+ */
+<span class="nc" id="L44">@Slf4j</span>
+public class SoapGenericItemReader implements ItemStreamReader&lt;GenericRecord&gt; {
+
+<span class="nc" id="L47">    private static final Pattern BIND_PARAM_PATTERN = Pattern.compile(&quot;(?&lt;![:])(:[a-zA-Z][a-zA-Z0-9_]*)&quot;);</span>
+<span class="nc" id="L48">    private static final Pattern ENV_VAR_PATTERN = Pattern.compile(&quot;\\$\\{([^}]+)\\}&quot;);</span>
+
+    private final SourceConfig sourceConfig;
+    private final SoapConfig soapConfig;
+    private final Map&lt;String, Object&gt; jobParameters;
+    private final SoapClient soapClient;
+
+    // Buffer for items from SOAP response
+<span class="nc" id="L56">    private Queue&lt;GenericRecord&gt; buffer = new LinkedList&lt;&gt;();</span>
+<span class="nc" id="L57">    private int itemsRead = 0;</span>
+<span class="nc" id="L58">    private boolean responseFetched = false;</span>
+
+    /**
+     * @param sourceConfig  source configuration from YAML
+     * @param soapConfig    SOAP-specific configuration
+     * @param jobParameters job parameters for bind variable resolution
+     * @param soapClient    configured SOAP client with auth
+     */
+    public SoapGenericItemReader(SourceConfig sourceConfig,
+                                  SoapConfig soapConfig,
+                                  Map&lt;String, Object&gt; jobParameters,
+<span class="nc" id="L69">                                  SoapClient soapClient) {</span>
+<span class="nc" id="L70">        this.sourceConfig = sourceConfig;</span>
+<span class="nc" id="L71">        this.soapConfig = soapConfig;</span>
+<span class="nc" id="L72">        this.jobParameters = Collections.unmodifiableMap(jobParameters);</span>
+<span class="nc" id="L73">        this.soapClient = soapClient;</span>
+
+<span class="nc" id="L75">        log.info(&quot;SoapGenericItemReader initialized for source '{}'&quot;, sourceConfig.getName());</span>
+<span class="nc" id="L76">    }</span>
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  ItemStreamReader implementation
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Override
+    public void open(org.springframework.batch.item.ExecutionContext executionContext) {
+<span class="nc" id="L84">        log.info(&quot;Opening SOAP reader for source '{}'&quot;, sourceConfig.getName());</span>
+
+<span class="nc" id="L86">        responseFetched = false;</span>
+<span class="nc" id="L87">        itemsRead = 0;</span>
+<span class="nc" id="L88">        buffer.clear();</span>
+
+<span class="nc" id="L90">        log.info(&quot;SOAP reader opened - endpoint: {}, SOAPAction: {}&quot;, </span>
+<span class="nc" id="L91">                 soapConfig.getEndpoint(), soapConfig.getSoapAction());</span>
+<span class="nc" id="L92">    }</span>
+
+    @Override
+    public GenericRecord read() throws Exception {
+        // Fetch SOAP response on first read call (lazy loading)
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        if (!responseFetched) {</span>
+<span class="nc" id="L98">            fetchSoapResponse();</span>
+<span class="nc" id="L99">            responseFetched = true;</span>
+        }
+
+        // Poll next item from buffer
+<span class="nc" id="L103">        GenericRecord record = buffer.poll();</span>
+<span class="nc bnc" id="L104" title="All 2 branches missed.">        if (record != null) {</span>
+<span class="nc" id="L105">            itemsRead++;</span>
+        }
+
+<span class="nc" id="L108">        return record;</span>
+    }
+
+    @Override
+    public void close() {
+<span class="nc" id="L113">        log.info(&quot;Closing SOAP reader for source '{}' - total items read: {}&quot;, </span>
+<span class="nc" id="L114">                 sourceConfig.getName(), itemsRead);</span>
+<span class="nc" id="L115">        buffer.clear();</span>
+<span class="nc" id="L116">    }</span>
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  SOAP call and XML processing
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void fetchSoapResponse() throws Exception {
+<span class="nc" id="L123">        log.debug(&quot;Preparing SOAP request for source '{}'&quot;, sourceConfig.getName());</span>
+
+        // Build SOAP request from template with bind variables
+<span class="nc" id="L126">        String soapRequest = buildSoapRequest();</span>
+<span class="nc" id="L127">        log.debug(&quot;SOAP request built: {} characters&quot;, soapRequest.length());</span>
+
+        // Execute SOAP call
+<span class="nc" id="L130">        String soapResponse = soapClient.call(soapRequest);</span>
+<span class="nc" id="L131">        log.debug(&quot;SOAP response received: {} characters&quot;, soapResponse.length());</span>
+
+        // Check for SOAP Fault (Q4: B - always fail on fault)
+<span class="nc bnc" id="L134" title="All 2 branches missed.">        if (containsSoapFault(soapResponse)) {</span>
+<span class="nc" id="L135">            String faultString = extractFaultString(soapResponse);</span>
+<span class="nc" id="L136">            throw new IllegalStateException(</span>
+                &quot;SOAP Fault received from endpoint: &quot; + faultString);
+        }
+
+        // Extract items using XPath
+<span class="nc" id="L141">        List&lt;GenericRecord&gt; items = extractItems(soapResponse);</span>
+<span class="nc" id="L142">        log.info(&quot;Extracted {} items from SOAP response&quot;, items.size());</span>
+
+<span class="nc" id="L144">        buffer.addAll(items);</span>
+<span class="nc" id="L145">    }</span>
+
+    private String buildSoapRequest() {
+<span class="nc" id="L148">        String template = soapConfig.getRequestTemplate();</span>
+
+        // Resolve bind variables in template
+<span class="nc bnc" id="L151" title="All 2 branches missed.">        for (Map.Entry&lt;String, String&gt; param : soapConfig.getRequestParams().entrySet()) {</span>
+<span class="nc" id="L152">            String paramName = param.getKey();</span>
+<span class="nc" id="L153">            String paramValue = param.getValue();</span>
+
+            // Resolve value from jobParameters or static
+<span class="nc" id="L156">            String resolvedValue = resolveVariables(paramValue, &quot;soap.requestParams.&quot; + paramName);</span>
+
+            // Replace :paramName in template
+<span class="nc" id="L159">            template = template.replace(&quot;:&quot; + paramName, escapeXml(resolvedValue));</span>
+<span class="nc" id="L160">        }</span>
+
+<span class="nc" id="L162">        return template;</span>
+    }
+
+    private boolean containsSoapFault(String soapResponse) {
+<span class="nc bnc" id="L166" title="All 2 branches missed.">        return soapResponse.contains(&quot;&lt;soap:Fault&quot;) || </span>
+<span class="nc bnc" id="L167" title="All 2 branches missed.">               soapResponse.contains(&quot;&lt;soapenv:Fault&quot;) ||</span>
+<span class="nc bnc" id="L168" title="All 2 branches missed.">               soapResponse.contains(&quot;&lt;SOAP-ENV:Fault&quot;);</span>
+    }
+
+    private String extractFaultString(String soapResponse) {
+        try {
+<span class="nc" id="L173">            Document doc = parseXml(soapResponse);</span>
+<span class="nc" id="L174">            XPath xpath = XPathFactory.newInstance().newXPath();</span>
+
+            // Try different SOAP fault paths
+<span class="nc" id="L177">            String faultString = (String) xpath.evaluate(</span>
+                &quot;//faultstring/text() | //soap:faultstring/text() | //soapenv:faultstring/text()&quot;,
+                doc, XPathConstants.STRING);
+
+<span class="nc bnc" id="L181" title="All 4 branches missed.">            if (faultString == null || faultString.isBlank()) {</span>
+<span class="nc" id="L182">                faultString = &quot;Unknown SOAP Fault&quot;;</span>
+            }
+
+<span class="nc" id="L185">            return faultString;</span>
+<span class="nc" id="L186">        } catch (Exception e) {</span>
+<span class="nc" id="L187">            return &quot;Failed to parse SOAP Fault: &quot; + e.getMessage();</span>
+        }
+    }
+
+    private List&lt;GenericRecord&gt; extractItems(String soapResponse) throws Exception {
+<span class="nc" id="L192">        Document doc = parseXml(soapResponse);</span>
+<span class="nc" id="L193">        XPath xpath = XPathFactory.newInstance().newXPath();</span>
+
+        // Extract nodes matching dataPath
+<span class="nc" id="L196">        NodeList nodes = (NodeList) xpath.evaluate(</span>
+<span class="nc" id="L197">            soapConfig.getDataPath(), doc, XPathConstants.NODESET);</span>
+
+<span class="nc bnc" id="L199" title="All 4 branches missed.">        if (nodes == null || nodes.getLength() == 0) {</span>
+<span class="nc" id="L200">            log.warn(&quot;XPath '{}' returned 0 nodes&quot;, soapConfig.getDataPath());</span>
+<span class="nc" id="L201">            return Collections.emptyList();</span>
+        }
+
+<span class="nc" id="L204">        log.debug(&quot;XPath matched {} nodes&quot;, nodes.getLength());</span>
+
+        // Convert each XML node to GenericRecord
+<span class="nc" id="L207">        List&lt;GenericRecord&gt; records = new ArrayList&lt;&gt;();</span>
+<span class="nc bnc" id="L208" title="All 2 branches missed.">        for (int i = 0; i &lt; nodes.getLength(); i++) {</span>
+<span class="nc" id="L209">            Node node = nodes.item(i);</span>
+<span class="nc" id="L210">            GenericRecord record = convertNodeToRecord(node, xpath);</span>
+<span class="nc" id="L211">            records.add(record);</span>
+        }
+
+<span class="nc" id="L214">        return records;</span>
+    }
+
+    private GenericRecord convertNodeToRecord(Node node, XPath xpath) throws Exception {
+<span class="nc" id="L218">        Map&lt;String, Object&gt; recordData = new HashMap&lt;&gt;();</span>
+
+<span class="nc bnc" id="L220" title="All 2 branches missed.">        for (ColumnConfig column : sourceConfig.getColumns()) {</span>
+<span class="nc" id="L221">            String columnName = column.getName();</span>
+<span class="nc" id="L222">            String xpathExpr = column.getXpath();</span>
+
+<span class="nc bnc" id="L224" title="All 4 branches missed.">            if (xpathExpr == null || xpathExpr.isBlank()) {</span>
+                // Default: ./columnName/text()
+<span class="nc" id="L226">                xpathExpr = &quot;./&quot; + columnName + &quot;/text()&quot;;</span>
+            }
+
+            // Evaluate XPath relative to current node
+<span class="nc" id="L230">            String value = (String) xpath.evaluate(xpathExpr, node, XPathConstants.STRING);</span>
+
+            // Type conversion
+<span class="nc" id="L233">            Object convertedValue = convertValue(value, column);</span>
+<span class="nc" id="L234">            recordData.put(columnName, convertedValue);</span>
+<span class="nc" id="L235">        }</span>
+
+<span class="nc" id="L237">        return new GenericRecord(recordData);</span>
+    }
+
+    private Object convertValue(String value, ColumnConfig column) {
+<span class="nc bnc" id="L241" title="All 4 branches missed.">        if (value == null || value.isBlank()) {</span>
+<span class="nc" id="L242">            return null;</span>
+        }
+
+<span class="nc" id="L245">        String type = column.getType().toUpperCase();</span>
+
+        try {
+<span class="nc bnc" id="L248" title="All 7 branches missed.">            switch (type) {</span>
+                case &quot;STRING&quot;:
+<span class="nc" id="L250">                    return value;</span>
+
+                case &quot;INTEGER&quot;:
+                case &quot;LONG&quot;:
+<span class="nc" id="L254">                    return Long.parseLong(value.trim());</span>
+
+                case &quot;DECIMAL&quot;:
+                case &quot;DOUBLE&quot;:
+<span class="nc" id="L258">                    return Double.parseDouble(value.trim());</span>
+
+                case &quot;BOOLEAN&quot;:
+<span class="nc" id="L261">                    return Boolean.parseBoolean(value.trim());</span>
+
+                case &quot;DATE&quot;:
+<span class="nc" id="L264">                    String format = column.getFormat();</span>
+<span class="nc bnc" id="L265" title="All 4 branches missed.">                    if (format != null &amp;&amp; !format.isBlank()) {</span>
+<span class="nc" id="L266">                        return LocalDate.parse(value.trim(), DateTimeFormatter.ofPattern(format));</span>
+                    }
+<span class="nc" id="L268">                    return LocalDate.parse(value.trim());</span>
+
+                case &quot;DATETIME&quot;:
+<span class="nc" id="L271">                    String datetimeFormat = column.getFormat();</span>
+<span class="nc bnc" id="L272" title="All 4 branches missed.">                    if (datetimeFormat != null &amp;&amp; !datetimeFormat.isBlank()) {</span>
+<span class="nc" id="L273">                        return LocalDateTime.parse(value.trim(), </span>
+<span class="nc" id="L274">                                DateTimeFormatter.ofPattern(datetimeFormat));</span>
+                    }
+<span class="nc" id="L276">                    return LocalDateTime.parse(value.trim());</span>
+
+                default:
+<span class="nc" id="L279">                    return value;</span>
+            }
+<span class="nc" id="L281">        } catch (Exception e) {</span>
+<span class="nc" id="L282">            log.warn(&quot;Failed to convert value '{}' to type {} for column {}: {}&quot;, </span>
+<span class="nc" id="L283">                     value, type, column.getName(), e.getMessage());</span>
+<span class="nc" id="L284">            return value;</span>
+        }
+    }
+
+    private Document parseXml(String xml) throws Exception {
+<span class="nc" id="L289">        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();</span>
+<span class="nc" id="L290">        factory.setNamespaceAware(soapConfig.isNamespaceAware());</span>
+<span class="nc" id="L291">        DocumentBuilder builder = factory.newDocumentBuilder();</span>
+<span class="nc" id="L292">        return builder.parse(new InputSource(new StringReader(xml)));</span>
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Variable resolution
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private String resolveVariables(String input, String context) {
+<span class="nc bnc" id="L300" title="All 2 branches missed.">        if (input == null) {</span>
+<span class="nc" id="L301">            return null;</span>
+        }
+
+        // Step 1: Resolve bind variables (:paramName)
+<span class="nc" id="L305">        String resolved = resolveBindVariables(input, context);</span>
+
+        // Step 2: Resolve environment variables (${VAR})
+<span class="nc" id="L308">        resolved = resolveEnvVariables(resolved, context);</span>
+
+<span class="nc" id="L310">        return resolved;</span>
+    }
+
+    private String resolveBindVariables(String input, String context) {
+<span class="nc" id="L314">        Matcher matcher = BIND_PARAM_PATTERN.matcher(input);</span>
+<span class="nc" id="L315">        StringBuffer sb = new StringBuffer();</span>
+
+<span class="nc bnc" id="L317" title="All 2 branches missed.">        while (matcher.find()) {</span>
+<span class="nc" id="L318">            String paramName = matcher.group(1).substring(1);  // Remove &quot;:&quot;</span>
+
+<span class="nc bnc" id="L320" title="All 2 branches missed.">            if (!jobParameters.containsKey(paramName)) {</span>
+<span class="nc" id="L321">                throw new IllegalStateException(String.format(</span>
+                    &quot;Bind variable not found in jobParameters [%s]: ':%s'%n&quot; +
+                    &quot;Available parameters: %s&quot;,
+<span class="nc" id="L324">                    context, paramName, jobParameters.keySet()</span>
+                ));
+            }
+
+<span class="nc" id="L328">            Object value = jobParameters.get(paramName);</span>
+<span class="nc" id="L329">            matcher.appendReplacement(sb, Matcher.quoteReplacement(value.toString()));</span>
+<span class="nc" id="L330">        }</span>
+
+<span class="nc" id="L332">        matcher.appendTail(sb);</span>
+<span class="nc" id="L333">        return sb.toString();</span>
+    }
+
+    private String resolveEnvVariables(String input, String context) {
+<span class="nc" id="L337">        Matcher matcher = ENV_VAR_PATTERN.matcher(input);</span>
+<span class="nc" id="L338">        StringBuffer sb = new StringBuffer();</span>
+
+<span class="nc bnc" id="L340" title="All 2 branches missed.">        while (matcher.find()) {</span>
+<span class="nc" id="L341">            String varName = matcher.group(1);</span>
+<span class="nc" id="L342">            String envValue = System.getenv(varName);</span>
+
+<span class="nc bnc" id="L344" title="All 2 branches missed.">            if (envValue == null) {</span>
+<span class="nc" id="L345">                throw new IllegalStateException(String.format(</span>
+                    &quot;Environment variable not found [%s]: ${%s}%n&quot; +
+                    &quot;Set it before running the job: export %s=&lt;value&gt;&quot;,
+                    context, varName, varName
+                ));
+            }
+
+<span class="nc" id="L352">            matcher.appendReplacement(sb, Matcher.quoteReplacement(envValue));</span>
+<span class="nc" id="L353">        }</span>
+
+<span class="nc" id="L355">        matcher.appendTail(sb);</span>
+<span class="nc" id="L356">        return sb.toString();</span>
+    }
+
+    private String escapeXml(String value) {
+<span class="nc bnc" id="L360" title="All 2 branches missed.">        if (value == null) {</span>
+<span class="nc" id="L361">            return &quot;&quot;;</span>
+        }
+<span class="nc" id="L363">        return value.replace(&quot;&amp;&quot;, &quot;&amp;amp;&quot;)</span>
+<span class="nc" id="L364">                    .replace(&quot;&lt;&quot;, &quot;&amp;lt;&quot;)</span>
+<span class="nc" id="L365">                    .replace(&quot;&gt;&quot;, &quot;&amp;gt;&quot;)</span>
+<span class="nc" id="L366">                    .replace(&quot;\&quot;&quot;, &quot;&amp;quot;&quot;)</span>
+<span class="nc" id="L367">                    .replace(&quot;'&quot;, &quot;&amp;apos;&quot;);</span>
+    }
+
+    /**
+     * SOAP client interface for making SOAP calls.
+     * Implemented by SoapGenericItemReaderBuilder.
+     */
+    public interface SoapClient {
+        /**
+         * Execute a SOAP call.
+         *
+         * @param soapRequest SOAP envelope XML
+         * @return SOAP response XML
+         * @throws Exception if the call fails
+         */
+        String call(String soapRequest) throws Exception;
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

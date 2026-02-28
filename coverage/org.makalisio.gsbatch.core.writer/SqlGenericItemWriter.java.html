@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>SqlGenericItemWriter.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gsbatch</a> &gt; <a href="index.source.html" class="el_package">org.makalisio.gsbatch.core.writer</a> &gt; <span class="el_source">SqlGenericItemWriter.java</span></div><h1>SqlGenericItemWriter.java</h1><pre class="source lang-java linenums">package org.makalisio.gsbatch.core.writer;
+
+import lombok.extern.slf4j.Slf4j;
+import org.makalisio.gsbatch.core.model.GenericRecord;
+import org.makalisio.gsbatch.core.model.WriterConfig;
+import org.makalisio.gsbatch.core.reader.SqlFileLoader;
+import org.springframework.batch.item.Chunk;
+import org.springframework.batch.item.ItemWriter;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.jdbc.core.namedparam.SqlParameterSource;
+
+import javax.sql.DataSource;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Generic writer driven by an external SQL file.
+ *
+ * &lt;p&gt;Loads the SQL once at construction time, then for each chunk
+ * executes a {@code batchUpdate} using the {@link GenericRecord} fields
+ * as bind variables.&lt;/p&gt;
+ *
+ * &lt;h2&gt;Example SQL file&lt;/h2&gt;
+ * &lt;pre&gt;
+ * INSERT INTO ORDERS_PROCESSED
+ *   (order_id, customer_id, amount, tva_amount, total_ttc, currency, status)
+ * VALUES
+ *   (:order_id, :customer_id, :amount, :tva_amount, :total_ttc, :currency, :status)
+ * &lt;/pre&gt;
+ *
+ * &lt;p&gt;The bind variable names ({@code :paramName}) must match
+ * the keys of the {@code GenericRecord} returned by the processor.&lt;/p&gt;
+ *
+ * &lt;h2&gt;Error handling&lt;/h2&gt;
+ * &lt;p&gt;Error behaviour is configured in the YAML via
+ * {@code writer.onError} (FAIL or SKIP) and managed by Spring Batch
+ * at the Step level via {@code faultTolerant().skip().skipLimit()}.&lt;/p&gt;
+ *
+ * @author Makalisio
+ * @since 0.0.1
+ */
+<span class="fc" id="L43">@Slf4j</span>
+public class SqlGenericItemWriter implements ItemWriter&lt;GenericRecord&gt; {
+
+    private final String rawSql;
+    private final NamedParameterJdbcTemplate namedJdbcTemplate;
+    private final String sourceName;
+
+    /**
+     * @param writerConfig  writer configuration (sqlDirectory, sqlFile)
+     * @param sqlFileLoader loader for reading the SQL file
+     * @param dataSource    DataSource to use
+     * @param sourceName    source name (for logging)
+     */
+    public SqlGenericItemWriter(WriterConfig writerConfig,
+                                SqlFileLoader sqlFileLoader,
+                                DataSource dataSource,
+<span class="fc" id="L59">                                String sourceName) {</span>
+<span class="fc" id="L60">        this.sourceName = sourceName;</span>
+<span class="fc" id="L61">        this.namedJdbcTemplate = new NamedParameterJdbcTemplate(dataSource);</span>
+
+        // Load SQL once - NamedParameterJdbcTemplate handles
+        // :paramName substitution for each row in the chunk
+<span class="fc" id="L65">        this.rawSql = sqlFileLoader.readRawSql(</span>
+<span class="fc" id="L66">                writerConfig.getSqlDirectory(),</span>
+<span class="fc" id="L67">                writerConfig.getSqlFile()</span>
+        );
+
+<span class="fc" id="L70">        log.info(&quot;Source '{}' - SqlGenericItemWriter initialized from {}/{}&quot;,</span>
+<span class="fc" id="L71">                sourceName, writerConfig.getSqlDirectory(), writerConfig.getSqlFile());</span>
+<span class="fc" id="L72">        log.debug(&quot;Source '{}' - SQL writer: {}&quot;, sourceName, abbreviate(rawSql, 200));</span>
+<span class="fc" id="L73">    }</span>
+
+    /**
+     * Writes a chunk of {@link GenericRecord} via a {@code batchUpdate}.
+     *
+     * &lt;p&gt;The fields of each {@code GenericRecord} are mapped to the SQL bind variables
+     * ({@code :paramName} -&gt; {@code record.get(&quot;paramName&quot;)}).&lt;/p&gt;
+     *
+     * &lt;p&gt;The {@code batchUpdate} sends all rows of the chunk in a single
+     * JDBC round-trip, which is more efficient than individual INSERTs.&lt;/p&gt;
+     *
+     * @param chunk the chunk of records to persist
+     */
+    @Override
+    public void write(Chunk&lt;? extends GenericRecord&gt; chunk) {
+<span class="fc bfc" id="L88" title="All 2 branches covered.">        if (chunk.isEmpty()) {</span>
+<span class="fc" id="L89">            log.debug(&quot;Source '{}' - empty chunk, nothing to write&quot;, sourceName);</span>
+<span class="fc" id="L90">            return;</span>
+        }
+
+<span class="fc" id="L93">        log.info(&quot;Source '{}' - writing {} record(s)&quot;, sourceName, chunk.size());</span>
+
+        // Build SqlParameterSource for each record in the chunk
+<span class="fc" id="L96">        SqlParameterSource[] batchParams = buildBatchParams(chunk);</span>
+
+        // Execute batchUpdate - single JDBC round-trip for the whole chunk
+<span class="fc" id="L99">        int[] rowCounts = namedJdbcTemplate.batchUpdate(rawSql, batchParams);</span>
+
+        // Count affected rows
+<span class="fc" id="L102">        int totalAffected = 0;</span>
+<span class="fc" id="L103">        int skipped = 0;</span>
+<span class="fc bfc" id="L104" title="All 2 branches covered.">        for (int count : rowCounts) {</span>
+<span class="pc bpc" id="L105" title="1 of 2 branches missed.">            if (count &gt;= 0) {</span>
+<span class="fc" id="L106">                totalAffected += count;</span>
+            } else {
+<span class="nc" id="L108">                skipped++; // SUCCESS_NO_INFO (-2) or EXECUTE_FAILED (-3)</span>
+            }
+        }
+
+<span class="fc" id="L112">        log.info(&quot;Source '{}' - chunk written: {} row(s) affected, {} with no info&quot;,</span>
+<span class="fc" id="L113">                sourceName, totalAffected, skipped);</span>
+<span class="fc" id="L114">    }</span>
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Builds the {@code SqlParameterSource} array for the {@code batchUpdate}.
+     * Each record is converted to a {@code MapSqlParameterSource} with all its fields.
+     */
+    private SqlParameterSource[] buildBatchParams(Chunk&lt;? extends GenericRecord&gt; chunk) {
+<span class="fc" id="L125">        List&lt;SqlParameterSource&gt; params = new ArrayList&lt;&gt;(chunk.size());</span>
+
+<span class="fc bfc" id="L127" title="All 2 branches covered.">        for (GenericRecord record : chunk) {</span>
+            // getValues() returns an immutable Map&lt;String, Object&gt;
+            // MapSqlParameterSource accepts a Map directly
+<span class="fc" id="L130">            MapSqlParameterSource paramSource = new MapSqlParameterSource(record.getValues());</span>
+<span class="fc" id="L131">            params.add(paramSource);</span>
+<span class="fc" id="L132">        }</span>
+
+<span class="fc" id="L134">        return params.toArray(new SqlParameterSource[0]);</span>
+    }
+
+    /**
+     * Truncates a string for logging purposes.
+     */
+    private String abbreviate(String text, int maxLen) {
+<span class="pc bpc" id="L141" title="1 of 2 branches missed.">        if (text == null) return &quot;&quot;;</span>
+<span class="fc" id="L142">        text = text.replaceAll(&quot;\\s+&quot;, &quot; &quot;).trim();</span>
+<span class="pc bpc" id="L143" title="1 of 2 branches missed.">        return text.length() &lt;= maxLen ? text : text.substring(0, maxLen) + &quot;...&quot;;</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

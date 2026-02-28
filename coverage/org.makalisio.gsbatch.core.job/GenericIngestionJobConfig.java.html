@@ -1,0 +1,320 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>GenericIngestionJobConfig.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gsbatch</a> &gt; <a href="index.source.html" class="el_package">org.makalisio.gsbatch.core.job</a> &gt; <span class="el_source">GenericIngestionJobConfig.java</span></div><h1>GenericIngestionJobConfig.java</h1><pre class="source lang-java linenums">package org.makalisio.gsbatch.core.job;
+
+import lombok.extern.slf4j.Slf4j;
+import org.makalisio.gsbatch.core.config.YamlSourceConfigLoader;
+import org.makalisio.gsbatch.core.model.GenericRecord;
+import org.makalisio.gsbatch.core.model.SourceConfig;
+import org.makalisio.gsbatch.core.model.WriterConfig;
+import org.makalisio.gsbatch.core.processor.GenericItemProcessorFactory;
+import org.makalisio.gsbatch.core.reader.GenericItemReaderFactory;
+import org.makalisio.gsbatch.core.reader.SqlFileLoader;
+import org.makalisio.gsbatch.core.tasklet.GenericTasklet;
+import org.makalisio.gsbatch.core.writer.GenericItemWriterFactory;
+import org.springframework.batch.core.Job;
+import org.springframework.batch.core.Step;
+import org.springframework.batch.core.configuration.annotation.JobScope;
+import org.springframework.batch.core.configuration.annotation.StepScope;
+import org.springframework.batch.core.job.builder.JobBuilder;
+import org.springframework.batch.core.repository.JobRepository;
+import org.springframework.batch.core.step.builder.FaultTolerantStepBuilder;
+import org.springframework.batch.core.step.builder.SimpleStepBuilder;
+import org.springframework.batch.core.step.builder.StepBuilder;
+import org.springframework.batch.core.step.tasklet.Tasklet;
+import org.springframework.batch.item.ItemProcessor;
+import org.springframework.batch.item.ItemStreamReader;
+import org.springframework.batch.item.ItemWriter;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.transaction.PlatformTransactionManager;
+
+import javax.sql.DataSource;
+import java.util.Collections;
+import java.util.Map;
+
+/**
+ * Configuration for the generic ingestion job.
+ *
+ * &lt;h2&gt;Bean lifecycle&lt;/h2&gt;
+ * &lt;pre&gt;
+ *   Application startup
+ *     └- genericIngestionJob              (Singleton)
+ *          ├- genericPreprocessingStep    (@JobScope - no-op if disabled)
+ *          ├- genericIngestionStep        (@JobScope - chunk reader/processor/writer)
+ *          └- genericPostprocessingStep   (@JobScope - no-op if disabled)
+ * &lt;/pre&gt;
+ *
+ * &lt;h2&gt;Pre/post processing steps&lt;/h2&gt;
+ * &lt;p&gt;Always included in the job but act as no-ops if {@code enabled=false}.
+ * This avoids rebuilding the job definition based on configuration.&lt;/p&gt;
+ *
+ * &lt;h2&gt;Writer fault-tolerance&lt;/h2&gt;
+ * &lt;p&gt;If {@code writer.onError=SKIP} in the YAML, the ingestion step is configured
+ * in {@code faultTolerant} mode with a configurable {@code skipLimit}.&lt;/p&gt;
+ *
+ * @author Makalisio
+ * @since 0.0.1
+ */
+<span class="nc" id="L59">@Slf4j</span>
+@Configuration
+public class GenericIngestionJobConfig {
+
+    private final YamlSourceConfigLoader configLoader;
+    private final GenericItemReaderFactory readerFactory;
+    private final GenericItemProcessorFactory processorFactory;
+    private final GenericItemWriterFactory writerFactory;
+    private final SqlFileLoader sqlFileLoader;
+    private final DataSource defaultDataSource;
+    private final ApplicationContext applicationContext;
+
+    /**
+     * @param configLoader       YAML configuration loader
+     * @param readerFactory      reader factory
+     * @param processorFactory   processor factory
+     * @param writerFactory      writer factory
+     * @param sqlFileLoader      SQL file loader (for pre/post processing)
+     * @param defaultDataSource  primary DataSource
+     * @param applicationContext Spring context (for JAVA beans)
+     */
+    public GenericIngestionJobConfig(YamlSourceConfigLoader configLoader,
+                                     GenericItemReaderFactory readerFactory,
+                                     GenericItemProcessorFactory processorFactory,
+                                     GenericItemWriterFactory writerFactory,
+                                     SqlFileLoader sqlFileLoader,
+                                     DataSource defaultDataSource,
+<span class="nc" id="L86">                                     ApplicationContext applicationContext) {</span>
+<span class="nc" id="L87">        this.configLoader = configLoader;</span>
+<span class="nc" id="L88">        this.readerFactory = readerFactory;</span>
+<span class="nc" id="L89">        this.processorFactory = processorFactory;</span>
+<span class="nc" id="L90">        this.writerFactory = writerFactory;</span>
+<span class="nc" id="L91">        this.sqlFileLoader = sqlFileLoader;</span>
+<span class="nc" id="L92">        this.defaultDataSource = defaultDataSource;</span>
+<span class="nc" id="L93">        this.applicationContext = applicationContext;</span>
+<span class="nc" id="L94">        log.info(&quot;GenericIngestionJobConfig initialized&quot;);</span>
+<span class="nc" id="L95">    }</span>
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  JOB
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Generic job with 3 steps: pre-processing → ingestion chunk → post-processing.
+     * Pre/post steps are no-ops if {@code enabled=false} in the YAML.
+     *
+     * @param jobRepository              the Spring Batch job repository
+     * @param genericPreprocessingStep   pre-processing step (@JobScope proxy)
+     * @param genericIngestionStep       main chunk step (@JobScope proxy)
+     * @param genericPostprocessingStep  post-processing step (@JobScope proxy)
+     * @return the configured job
+     */
+    @Bean
+    public Job genericIngestionJob(JobRepository jobRepository,
+                                   Step genericPreprocessingStep,
+                                   Step genericIngestionStep,
+                                   Step genericPostprocessingStep) {
+<span class="nc" id="L116">        log.debug(&quot;Building genericIngestionJob&quot;);</span>
+<span class="nc" id="L117">        return new JobBuilder(&quot;genericIngestionJob&quot;, jobRepository)</span>
+<span class="nc" id="L118">                .start(genericPreprocessingStep)</span>
+<span class="nc" id="L119">                .next(genericIngestionStep)</span>
+<span class="nc" id="L120">                .next(genericPostprocessingStep)</span>
+<span class="nc" id="L121">                .build();</span>
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  PRE-PROCESSING STEP
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Pre-processing step (Tasklet).
+     * No-op if {@code preprocessing.enabled=false} in the YAML.
+     *
+     * @param jobRepository  the Spring Batch job repository
+     * @param txManager      transaction manager
+     * @param sourceName     source name (from jobParameters)
+     * @param jobParameters  all job parameters
+     * @return the configured step
+     */
+    @Bean
+    @JobScope
+    public Step genericPreprocessingStep(
+            JobRepository jobRepository,
+            PlatformTransactionManager txManager,
+            @Value(&quot;#{jobParameters['sourceName']}&quot;) String sourceName,
+            @Value(&quot;#{jobParameters}&quot;) Map&lt;String, Object&gt; jobParameters) {
+
+<span class="nc" id="L146">        SourceConfig config = configLoader.load(sourceName);</span>
+<span class="nc" id="L147">        Tasklet tasklet = new GenericTasklet(</span>
+<span class="nc" id="L148">                config.getPreprocessing(),</span>
+<span class="nc" id="L149">                Collections.unmodifiableMap(jobParameters),</span>
+                sqlFileLoader,
+                defaultDataSource,
+                applicationContext,
+                sourceName
+        );
+
+<span class="nc bnc" id="L156" title="All 4 branches missed.">        boolean enabled = config.getPreprocessing() != null &amp;&amp; config.getPreprocessing().isEnabled();</span>
+<span class="nc" id="L157">        log.info(&quot;Building preprocessing step for '{}' (enabled={})&quot;, sourceName, enabled);</span>
+
+<span class="nc" id="L159">        return new StepBuilder(&quot;genericPreprocessingStep-&quot; + sourceName, jobRepository)</span>
+<span class="nc" id="L160">                .tasklet(tasklet, txManager)</span>
+<span class="nc" id="L161">                .build();</span>
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  INGESTION STEP (chunk)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Main read/process/write step in chunk mode.
+     *
+     * &lt;p&gt;If {@code writer.onError=SKIP}, the step is configured in
+     * {@code faultTolerant} mode with {@code skipLimit} from the YAML.&lt;/p&gt;
+     *
+     * @param jobRepository              the Spring Batch job repository
+     * @param txManager                  transaction manager
+     * @param genericIngestionReader     reader (@StepScope proxy)
+     * @param genericIngestionProcessor  processor (@StepScope proxy)
+     * @param genericIngestionWriter     writer (@StepScope proxy)
+     * @param sourceName                 source name (from jobParameters)
+     * @return the configured step
+     */
+    @Bean
+    @JobScope
+    public Step genericIngestionStep(
+            JobRepository jobRepository,
+            PlatformTransactionManager txManager,
+            ItemStreamReader&lt;GenericRecord&gt; genericIngestionReader,
+            ItemProcessor&lt;GenericRecord, GenericRecord&gt; genericIngestionProcessor,
+            ItemWriter&lt;GenericRecord&gt; genericIngestionWriter,
+            @Value(&quot;#{jobParameters['sourceName']}&quot;) String sourceName) {
+
+<span class="nc" id="L192">        SourceConfig config = configLoader.load(sourceName);</span>
+<span class="nc" id="L193">        int chunkSize = config.getChunkSize();</span>
+
+<span class="nc" id="L195">        log.info(&quot;Building ingestion step for '{}' (chunkSize={})&quot;, sourceName, chunkSize);</span>
+
+<span class="nc" id="L197">        SimpleStepBuilder&lt;GenericRecord, GenericRecord&gt; stepBuilder =</span>
+                new StepBuilder(&quot;genericIngestionStep-&quot; + sourceName, jobRepository)
+<span class="nc" id="L199">                        .&lt;GenericRecord, GenericRecord&gt;chunk(chunkSize, txManager)</span>
+<span class="nc" id="L200">                        .reader(genericIngestionReader)</span>
+<span class="nc" id="L201">                        .processor(genericIngestionProcessor)</span>
+<span class="nc" id="L202">                        .writer(genericIngestionWriter);</span>
+
+        // ── Fault tolerance if writer.onError=SKIP ───────────────────────────
+<span class="nc bnc" id="L205" title="All 2 branches missed.">        if (config.hasWriterConfig()) {</span>
+<span class="nc" id="L206">            WriterConfig writerConfig = config.getWriter();</span>
+<span class="nc bnc" id="L207" title="All 2 branches missed.">            if (writerConfig.isSkipOnError()) {</span>
+<span class="nc" id="L208">                int skipLimit = writerConfig.getSkipLimit();</span>
+<span class="nc" id="L209">                log.info(&quot;Source '{}' - fault-tolerant mode (onError=SKIP, skipLimit={})&quot;,</span>
+<span class="nc" id="L210">                        sourceName, skipLimit);</span>
+
+<span class="nc" id="L212">                FaultTolerantStepBuilder&lt;GenericRecord, GenericRecord&gt; ftBuilder =</span>
+<span class="nc" id="L213">                        stepBuilder.faultTolerant()</span>
+<span class="nc" id="L214">                                .skip(Exception.class)</span>
+<span class="nc" id="L215">                                .skipLimit(skipLimit);</span>
+
+<span class="nc" id="L217">                return ftBuilder.build();</span>
+            }
+        }
+
+<span class="nc" id="L221">        return stepBuilder.build();</span>
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  POST-PROCESSING STEP
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Post-processing step (Tasklet).
+     * No-op if {@code postprocessing.enabled=false} in the YAML.
+     *
+     * @param jobRepository  the Spring Batch job repository
+     * @param txManager      transaction manager
+     * @param sourceName     source name (from jobParameters)
+     * @param jobParameters  all job parameters
+     * @return the configured step
+     */
+    @Bean
+    @JobScope
+    public Step genericPostprocessingStep(
+            JobRepository jobRepository,
+            PlatformTransactionManager txManager,
+            @Value(&quot;#{jobParameters['sourceName']}&quot;) String sourceName,
+            @Value(&quot;#{jobParameters}&quot;) Map&lt;String, Object&gt; jobParameters) {
+
+<span class="nc" id="L246">        SourceConfig config = configLoader.load(sourceName);</span>
+<span class="nc" id="L247">        Tasklet tasklet = new GenericTasklet(</span>
+<span class="nc" id="L248">                config.getPostprocessing(),</span>
+<span class="nc" id="L249">                Collections.unmodifiableMap(jobParameters),</span>
+                sqlFileLoader,
+                defaultDataSource,
+                applicationContext,
+                sourceName
+        );
+
+<span class="nc bnc" id="L256" title="All 4 branches missed.">        boolean enabled = config.getPostprocessing() != null &amp;&amp; config.getPostprocessing().isEnabled();</span>
+<span class="nc" id="L257">        log.info(&quot;Building postprocessing step for '{}' (enabled={})&quot;, sourceName, enabled);</span>
+
+<span class="nc" id="L259">        return new StepBuilder(&quot;genericPostprocessingStep-&quot; + sourceName, jobRepository)</span>
+<span class="nc" id="L260">                .tasklet(tasklet, txManager)</span>
+<span class="nc" id="L261">                .build();</span>
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  READER / PROCESSOR / WRITER  (@StepScope)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Generic reader (@StepScope).
+     * All jobParameters are passed for SQL bind variable resolution.
+     *
+     * @param sourceName    source name (from jobParameters)
+     * @param jobParameters all job parameters (SQL bind variables)
+     * @return configured reader (ItemStreamReader = ItemReader + ItemStream)
+     */
+    @Bean
+    @StepScope
+    public ItemStreamReader&lt;GenericRecord&gt; genericIngestionReader(
+            @Value(&quot;#{jobParameters['sourceName']}&quot;) String sourceName,
+            @Value(&quot;#{jobParameters}&quot;) Map&lt;String, Object&gt; jobParameters) {
+
+<span class="nc" id="L282">        log.debug(&quot;Creating reader for source: {} ({} jobParameters)&quot;, sourceName, jobParameters.size());</span>
+<span class="nc" id="L283">        SourceConfig config = configLoader.load(sourceName);</span>
+<span class="nc" id="L284">        return readerFactory.buildReader(config, Collections.unmodifiableMap(jobParameters));</span>
+    }
+
+    /**
+     * Generic processor (@StepScope).
+     *
+     * @param sourceName source name (from jobParameters)
+     * @return configured processor (pass-through if no custom bean found)
+     */
+    @Bean
+    @StepScope
+    public ItemProcessor&lt;GenericRecord, GenericRecord&gt; genericIngestionProcessor(
+            @Value(&quot;#{jobParameters['sourceName']}&quot;) String sourceName) {
+
+<span class="nc" id="L298">        log.debug(&quot;Creating processor for source: {}&quot;, sourceName);</span>
+<span class="nc" id="L299">        SourceConfig config = configLoader.load(sourceName);</span>
+<span class="nc" id="L300">        return processorFactory.buildProcessor(config);</span>
+    }
+
+    /**
+     * Generic writer (@StepScope).
+     * Resolution order: writer.type=SQL → writer.type=JAVA → bean {sourceName}Writer.
+     *
+     * @param sourceName source name (from jobParameters)
+     * @return configured writer
+     */
+    @Bean
+    @StepScope
+    public ItemWriter&lt;GenericRecord&gt; genericIngestionWriter(
+            @Value(&quot;#{jobParameters['sourceName']}&quot;) String sourceName) {
+
+<span class="nc" id="L315">        log.debug(&quot;Creating writer for source: {}&quot;, sourceName);</span>
+<span class="nc" id="L316">        SourceConfig config = configLoader.load(sourceName);</span>
+<span class="nc" id="L317">        return writerFactory.buildWriter(config);</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>

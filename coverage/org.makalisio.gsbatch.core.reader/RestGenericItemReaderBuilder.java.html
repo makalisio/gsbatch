@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"><html xmlns="http://www.w3.org/1999/xhtml" lang="fr"><head><meta http-equiv="Content-Type" content="text/html;charset=UTF-8"/><link rel="stylesheet" href="../jacoco-resources/report.css" type="text/css"/><link rel="shortcut icon" href="../jacoco-resources/report.gif" type="image/gif"/><title>RestGenericItemReaderBuilder.java</title><link rel="stylesheet" href="../jacoco-resources/prettify.css" type="text/css"/><script type="text/javascript" src="../jacoco-resources/prettify.js"></script></head><body onload="window['PR_TAB_WIDTH']=4;prettyPrint()"><div class="breadcrumb" id="breadcrumb"><span class="info"><a href="../jacoco-sessions.html" class="el_session">Sessions</a></span><a href="../index.html" class="el_report">gsbatch</a> &gt; <a href="index.source.html" class="el_package">org.makalisio.gsbatch.core.reader</a> &gt; <span class="el_source">RestGenericItemReaderBuilder.java</span></div><h1>RestGenericItemReaderBuilder.java</h1><pre class="source lang-java linenums">package org.makalisio.gsbatch.core.reader;
+
+import lombok.extern.slf4j.Slf4j;
+import org.makalisio.gsbatch.core.model.GenericRecord;
+import org.makalisio.gsbatch.core.model.RestConfig;
+import org.makalisio.gsbatch.core.model.SourceConfig;
+import org.springframework.batch.item.ItemStreamReader;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.http.HttpRequest;
+import org.springframework.http.client.ClientHttpRequestExecution;
+import org.springframework.http.client.ClientHttpRequestInterceptor;
+import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.retry.backoff.FixedBackOffPolicy;
+import org.springframework.retry.policy.SimpleRetryPolicy;
+import org.springframework.retry.support.RetryTemplate;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestTemplate;
+
+import java.io.IOException;
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Builder for {@link RestGenericItemReader}.
+ *
+ * &lt;p&gt;Responsibilities:&lt;/p&gt;
+ * &lt;ul&gt;
+ *   &lt;li&gt;Configure {@link RestTemplate} with authentication interceptor&lt;/li&gt;
+ *   &lt;li&gt;Configure {@link RetryTemplate} with backoff policy and retryable HTTP codes&lt;/li&gt;
+ *   &lt;li&gt;Resolve environment variables in auth credentials (${VAR} syntax)&lt;/li&gt;
+ *   &lt;li&gt;Instantiate the reader with all dependencies&lt;/li&gt;
+ * &lt;/ul&gt;
+ *
+ * @author Makalisio
+ * @since 0.0.1
+ */
+<span class="fc" id="L41">@Slf4j</span>
+@Component
+public class RestGenericItemReaderBuilder {
+
+<span class="fc" id="L45">    private static final Pattern ENV_VAR_PATTERN = Pattern.compile(&quot;\\$\\{([^}]+)\\}&quot;);</span>
+
+<span class="nc" id="L47">    public RestGenericItemReaderBuilder() {</span>
+<span class="nc" id="L48">        log.info(&quot;RestGenericItemReaderBuilder initialized&quot;);</span>
+<span class="nc" id="L49">    }</span>
+
+    /**
+     * Builds a REST ItemReader for the given source configuration.
+     *
+     * @param sourceConfig  source configuration from YAML
+     * @param jobParameters job parameters for bind variable resolution
+     * @return configured REST reader
+     */
+    public ItemStreamReader&lt;GenericRecord&gt; build(SourceConfig sourceConfig,
+                                                 Map&lt;String, Object&gt; jobParameters) {
+<span class="nc bnc" id="L60" title="All 2 branches missed.">        if (!sourceConfig.hasRestConfig()) {</span>
+<span class="nc" id="L61">            throw new IllegalStateException(</span>
+<span class="nc" id="L62">                    &quot;REST configuration missing for source: &quot; + sourceConfig.getName());</span>
+        }
+
+<span class="nc" id="L65">        RestConfig restConfig = sourceConfig.getRest();</span>
+<span class="nc" id="L66">        log.info(&quot;Building REST reader for source '{}' - URL: {}, pagination: {}&quot;,</span>
+<span class="nc" id="L67">                sourceConfig.getName(), restConfig.getUrl(),</span>
+<span class="nc" id="L68">                restConfig.getPagination().getStrategy());</span>
+
+        // Build RestTemplate with authentication
+<span class="nc" id="L71">        RestTemplate restTemplate = buildRestTemplate(restConfig, sourceConfig.getName());</span>
+
+        // Build RetryTemplate for transient errors
+<span class="nc" id="L74">        RetryTemplate retryTemplate = buildRetryTemplate(restConfig, sourceConfig.getName());</span>
+
+<span class="nc" id="L76">        return new RestGenericItemReader(</span>
+                sourceConfig,
+                restConfig,
+                jobParameters,
+                restTemplate,
+                retryTemplate
+        );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  RestTemplate configuration
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private RestTemplate buildRestTemplate(RestConfig restConfig, String sourceName) {
+<span class="nc" id="L90">        RestTemplateBuilder builder = new RestTemplateBuilder()</span>
+<span class="nc" id="L91">                .setConnectTimeout(Duration.ofSeconds(30))</span>
+<span class="nc" id="L92">                .setReadTimeout(Duration.ofSeconds(60));</span>
+
+        // Add authentication interceptor if configured
+<span class="nc" id="L95">        String authType = restConfig.getAuth().getType().toUpperCase();</span>
+
+<span class="nc bnc" id="L97" title="All 2 branches missed.">        if (&quot;API_KEY&quot;.equals(authType)) {</span>
+<span class="nc" id="L98">            String apiKey = resolveEnvVars(restConfig.getAuth().getApiKey(), &quot;rest.auth.apiKey&quot;);</span>
+<span class="nc" id="L99">            String headerName = restConfig.getAuth().getHeaderName();</span>
+
+<span class="nc" id="L101">            log.debug(&quot;Source '{}' - API_KEY auth configured (header: {})&quot;, sourceName, headerName);</span>
+
+<span class="nc" id="L103">            builder = builder.interceptors((ClientHttpRequestInterceptor) (request, body, execution) -&gt; {</span>
+<span class="nc" id="L104">                request.getHeaders().set(headerName, apiKey);</span>
+<span class="nc" id="L105">                return execution.execute(request, body);</span>
+            });
+<span class="nc" id="L107">        }</span>
+<span class="nc bnc" id="L108" title="All 2 branches missed.">        else if (&quot;BEARER&quot;.equals(authType)) {</span>
+<span class="nc" id="L109">            String token = resolveEnvVars(restConfig.getAuth().getBearerToken(), &quot;rest.auth.bearerToken&quot;);</span>
+
+<span class="nc" id="L111">            log.debug(&quot;Source '{}' - BEARER auth configured&quot;, sourceName);</span>
+
+<span class="nc" id="L113">            builder = builder.interceptors((ClientHttpRequestInterceptor) (request, body, execution) -&gt; {</span>
+<span class="nc" id="L114">                request.getHeaders().setBearerAuth(token);</span>
+<span class="nc" id="L115">                return execution.execute(request, body);</span>
+            });
+<span class="nc" id="L117">        }</span>
+<span class="nc bnc" id="L118" title="All 2 branches missed.">        else if (&quot;OAUTH2_CLIENT_CREDENTIALS&quot;.equals(authType)) {</span>
+<span class="nc" id="L119">            throw new UnsupportedOperationException(</span>
+                    &quot;OAUTH2_CLIENT_CREDENTIALS not yet implemented. Use API_KEY or BEARER for now.&quot;);
+        }
+<span class="nc bnc" id="L122" title="All 2 branches missed.">        else if (!&quot;NONE&quot;.equals(authType)) {</span>
+<span class="nc" id="L123">            throw new IllegalStateException(</span>
+                    &quot;Unknown auth type for source '&quot; + sourceName + &quot;': &quot; + authType);
+        }
+
+<span class="nc" id="L127">        return builder.build();</span>
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  RetryTemplate configuration
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private RetryTemplate buildRetryTemplate(RestConfig restConfig, String sourceName) {
+<span class="nc" id="L135">        RestConfig.RetryConfig retryConfig = restConfig.getRetry();</span>
+
+<span class="nc bnc" id="L137" title="All 2 branches missed.">        if (retryConfig.getMaxRetries() == 0) {</span>
+<span class="nc" id="L138">            log.debug(&quot;Source '{}' - retry disabled&quot;, sourceName);</span>
+            // Return a no-op RetryTemplate
+<span class="nc" id="L140">            RetryTemplate noRetry = new RetryTemplate();</span>
+<span class="nc" id="L141">            noRetry.setRetryPolicy(new SimpleRetryPolicy(1));  // 1 attempt = no retry</span>
+<span class="nc" id="L142">            return noRetry;</span>
+        }
+
+<span class="nc" id="L145">        log.info(&quot;Source '{}' - retry configured: maxRetries={}, delay={}ms, codes={}&quot;,</span>
+<span class="nc" id="L146">                sourceName, retryConfig.getMaxRetries(), retryConfig.getRetryDelay(),</span>
+<span class="nc" id="L147">                retryConfig.getRetryOnHttpCodes());</span>
+
+        // Retry policy: retry on specific HTTP status codes
+<span class="nc" id="L150">        Map&lt;Class&lt;? extends Throwable&gt;, Boolean&gt; retryableExceptions = new HashMap&lt;&gt;();</span>
+<span class="nc" id="L151">        retryableExceptions.put(HttpStatusCodeException.class, true);</span>
+
+<span class="nc" id="L153">        SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(</span>
+<span class="nc" id="L154">                retryConfig.getMaxRetries() + 1,  // +1 because Spring counts the initial attempt</span>
+                retryableExceptions
+<span class="nc" id="L156">        ) {</span>
+            @Override
+            public boolean canRetry(org.springframework.retry.RetryContext context) {
+<span class="nc" id="L159">                Throwable lastThrowable = context.getLastThrowable();</span>
+
+<span class="nc bnc" id="L161" title="All 2 branches missed.">                if (lastThrowable instanceof HttpStatusCodeException) {</span>
+<span class="nc" id="L162">                    int statusCode = ((HttpStatusCodeException) lastThrowable).getStatusCode().value();</span>
+<span class="nc" id="L163">                    boolean shouldRetry = retryConfig.getRetryOnHttpCodes().contains(statusCode);</span>
+
+<span class="nc bnc" id="L165" title="All 2 branches missed.">                    if (shouldRetry) {</span>
+<span class="nc" id="L166">                        log.warn(&quot;HTTP {} received - retry attempt {}/{}&quot;,</span>
+<span class="nc" id="L167">                                statusCode, context.getRetryCount(), retryConfig.getMaxRetries());</span>
+                    }
+
+<span class="nc bnc" id="L170" title="All 4 branches missed.">                    return shouldRetry &amp;&amp; super.canRetry(context);</span>
+                }
+
+<span class="nc" id="L173">                return false;  // Don't retry other exceptions</span>
+            }
+        };
+
+        // Backoff policy: fixed delay between retries
+<span class="nc" id="L178">        FixedBackOffPolicy backOffPolicy = new FixedBackOffPolicy();</span>
+<span class="nc" id="L179">        backOffPolicy.setBackOffPeriod(retryConfig.getRetryDelay());</span>
+
+<span class="nc" id="L181">        RetryTemplate retryTemplate = new RetryTemplate();</span>
+<span class="nc" id="L182">        retryTemplate.setRetryPolicy(retryPolicy);</span>
+<span class="nc" id="L183">        retryTemplate.setBackOffPolicy(backOffPolicy);</span>
+
+<span class="nc" id="L185">        return retryTemplate;</span>
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Environment variable resolution
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Resolves environment variables in the format ${VAR_NAME}.
+     *
+     * @param input   string that may contain ${VAR} placeholders
+     * @param context context for error messages (e.g., &quot;rest.auth.apiKey&quot;)
+     * @return resolved string with env vars substituted
+     * @throws IllegalStateException if an environment variable is not found
+     */
+    private String resolveEnvVars(String input, String context) {
+<span class="nc bnc" id="L201" title="All 4 branches missed.">        if (input == null || input.isBlank()) {</span>
+<span class="nc" id="L202">            return input;</span>
+        }
+
+<span class="nc" id="L205">        Matcher matcher = ENV_VAR_PATTERN.matcher(input);</span>
+<span class="nc" id="L206">        StringBuffer sb = new StringBuffer();</span>
+
+<span class="nc bnc" id="L208" title="All 2 branches missed.">        while (matcher.find()) {</span>
+<span class="nc" id="L209">            String varName = matcher.group(1);</span>
+<span class="nc" id="L210">            String envValue = System.getenv(varName);</span>
+
+<span class="nc bnc" id="L212" title="All 2 branches missed.">            if (envValue == null) {</span>
+<span class="nc" id="L213">                throw new IllegalStateException(String.format(</span>
+                        &quot;Environment variable not found [%s]: ${%s}%n&quot; +
+                                &quot;Set it before running the job:%n&quot; +
+                                &quot;  export %s=&lt;value&gt;  # Linux/Mac%n&quot; +
+                                &quot;  set %s=&lt;value&gt;     # Windows CMD%n&quot; +
+                                &quot;  $env:%s='&lt;value&gt;'  # Windows PowerShell&quot;,
+                        context, varName, varName, varName, varName
+                ));
+            }
+
+<span class="nc" id="L223">            matcher.appendReplacement(sb, Matcher.quoteReplacement(envValue));</span>
+<span class="nc" id="L224">        }</span>
+
+<span class="nc" id="L226">        matcher.appendTail(sb);</span>
+<span class="nc" id="L227">        return sb.toString();</span>
+    }
+}
+</pre><div class="footer"><span class="right">Created with <a href="http://www.jacoco.org/jacoco">JaCoCo</a> 0.8.11.202310140853</span></div></body></html>
