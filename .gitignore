@@ -37,3 +37,8 @@ build/
 
 ### Mac OS ###
 .DS_Store
+
+### Dependabot watcher (runtime) ###
+.watch-dependabot.log
+.watch-dependabot-applied
+.watch-jackson.log
