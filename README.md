@@ -755,9 +755,6 @@ mvn clean install
 # Sans tests
 mvn clean install -DskipTests
 
-# Rapport de couverture (coverage/index.html)
-mvn clean verify -P coverage && cp -r target/site/jacoco coverage
-
 # Build production (vérifie l'absence de dépendances SNAPSHOT)
 mvn install -P prod
 ```
