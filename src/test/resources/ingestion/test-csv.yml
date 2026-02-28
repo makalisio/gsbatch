@@ -1,0 +1,7 @@
+type: CSV
+path: /tmp/test.csv
+columns:
+  - name: id
+    type: STRING
+  - name: amount
+    type: DECIMAL

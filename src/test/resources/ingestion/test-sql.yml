@@ -1,0 +1,3 @@
+type: SQL
+sqlDirectory: /opt/sql
+sqlFile: orders.sql
