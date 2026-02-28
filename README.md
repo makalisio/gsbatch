@@ -713,8 +713,7 @@ Tests run: 168, Failures: 0, Errors: 0, Skipped: 0
 
 ### Couverture de code
 
-Rapport complet : [`coverage/index.html`](coverage/index.html)
-Généré avec : `mvn clean verify -P coverage`
+Généré avec : `mvn clean verify -P coverage` → `target/site/jacoco/index.html`
 
 | Package | Lignes | Couverture |
 |---------|--------|------------|
