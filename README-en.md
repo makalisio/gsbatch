@@ -3,6 +3,8 @@
 **Generic Spring Batch ingestion framework**
 Stack: Java 21 · Spring Boot 3.4.x · Spring Batch 5
 
+> Documentation available in: [Français](README-fr.md) · **English**
+
 ---
 
 ## Table of Contents
@@ -867,4 +869,13 @@ retry:
 
 ---
 
-*Consolidated documentation — last updated: February 28, 2026*
+## License
+
+This project is distributed under the **Apache License, Version 2.0**.
+See the [LICENSE](LICENSE) file for the full text.
+
+Copyright 2026 Makalisio Contributors
+
+---
+
+*Consolidated documentation — last updated: March 1, 2026*
