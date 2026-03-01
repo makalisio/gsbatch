@@ -21,7 +21,7 @@ mvn clean verify -P coverage
 mvn install -P prod
 ```
 
-There are currently no tests in `src/test/`. The test stack is JUnit 5 + Mockito + AssertJ + `@SpringBatchTest`.
+The test suite lives in `src/test/` — 168 tests, 0 failures. Stack: JUnit 5 + Mockito 5 + AssertJ (pure unit tests, no Spring context). `@SpringBatchTest` + H2 is reserved for future integration tests covering `GenericIngestionJobConfig`.
 
 ## Architecture Overview
 
@@ -99,6 +99,16 @@ Both REST and SOAP readers support two substitution mechanisms in URLs, SQL, and
 | `dev` (default) | Development |
 | `prod` | Enforces no SNAPSHOT dependencies |
 | `coverage` | JaCoCo code coverage |
+
+## License
+
+Apache License, Version 2.0. See `LICENSE` and `NOTICE` at the repository root.
+Every Java source file carries the standard Apache 2.0 header comment.
+
+## Documentation
+
+- `README-fr.md` — documentation complète en français
+- `README-en.md` — full documentation in English
 
 ## Adding a New Source Type
 
