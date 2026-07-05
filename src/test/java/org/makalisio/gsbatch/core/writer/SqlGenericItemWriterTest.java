@@ -15,6 +15,7 @@
  */
 package org.makalisio.gsbatch.core.writer;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.makalisio.gsbatch.core.model.GenericRecord;
@@ -130,6 +131,66 @@ class SqlGenericItemWriterTest {
             createWriter(sqlFileLoader, dataSource);
 
             verify(sqlFileLoader, times(1)).readRawSql("dir", "file.sql");
+        }
+    }
+
+    // ── Métriques ─────────────────────────────────────────────────────────────
+
+    @Test
+    void write_recordsWrittenItemsMetric() throws Exception {
+        SqlFileLoader sqlFileLoader = mock(SqlFileLoader.class);
+        DataSource dataSource = mock(DataSource.class);
+        when(sqlFileLoader.readRawSql(any(), any())).thenReturn(INSERT_SQL);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
+        try (MockedConstruction<NamedParameterJdbcTemplate> mocked =
+                     Mockito.mockConstruction(NamedParameterJdbcTemplate.class, (mock, ctx) ->
+                             when(mock.batchUpdate(eq(INSERT_SQL), any(SqlParameterSource[].class)))
+                                     .thenReturn(new int[]{1, 1}))) {
+
+            WriterConfig wc = new WriterConfig();
+            wc.setType("SQL");
+            wc.setSqlDirectory("dir");
+            wc.setSqlFile("file.sql");
+            SqlGenericItemWriter writer = new SqlGenericItemWriter(
+                    wc, sqlFileLoader, dataSource, "test-source", registry);
+
+            writer.write(new Chunk<>(List.of(
+                    recordWith("id", 1, "amount", 50.0),
+                    recordWith("id", 2, "amount", 75.0))));
+
+            assertThat(registry.get("gsbatch.writer.items")
+                    .tag("source", "test-source").tag("component", "sql-writer")
+                    .counter().count()).isEqualTo(2.0);
+        }
+    }
+
+    @Test
+    void write_batchUpdateFailure_recordsErrorMetric() {
+        SqlFileLoader sqlFileLoader = mock(SqlFileLoader.class);
+        DataSource dataSource = mock(DataSource.class);
+        when(sqlFileLoader.readRawSql(any(), any())).thenReturn(INSERT_SQL);
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+
+        try (MockedConstruction<NamedParameterJdbcTemplate> mocked =
+                     Mockito.mockConstruction(NamedParameterJdbcTemplate.class, (mock, ctx) ->
+                             when(mock.batchUpdate(eq(INSERT_SQL), any(SqlParameterSource[].class)))
+                                     .thenThrow(new RuntimeException("db down")))) {
+
+            WriterConfig wc = new WriterConfig();
+            wc.setType("SQL");
+            wc.setSqlDirectory("dir");
+            wc.setSqlFile("file.sql");
+            SqlGenericItemWriter writer = new SqlGenericItemWriter(
+                    wc, sqlFileLoader, dataSource, "test-source", registry);
+
+            assertThatThrownBy(() -> writer.write(new Chunk<>(List.of(recordWith("id", 1, "amount", 50.0)))))
+                    .isInstanceOf(RuntimeException.class);
+
+            assertThat(registry.get("gsbatch.errors")
+                    .tag("source", "test-source").tag("component", "sql-writer")
+                    .tag("error", "batch_update")
+                    .counter().count()).isEqualTo(1.0);
         }
     }
 

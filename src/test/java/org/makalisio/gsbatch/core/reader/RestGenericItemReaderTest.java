@@ -15,6 +15,7 @@
  */
 package org.makalisio.gsbatch.core.reader;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.makalisio.gsbatch.core.model.ColumnConfig;
 import org.makalisio.gsbatch.core.model.GenericRecord;
@@ -76,6 +77,13 @@ class RestGenericItemReaderTest {
         restTemplate = newRestTemplate();
         RetryTemplate retryTemplate = new RetryTemplate();
         return new RestGenericItemReader(config, config.getRest(), jobParameters, restTemplate, retryTemplate);
+    }
+
+    private RestGenericItemReader reader(SourceConfig config, Map<String, Object> jobParameters,
+                                          SimpleMeterRegistry meterRegistry) {
+        restTemplate = newRestTemplate();
+        RetryTemplate retryTemplate = new RetryTemplate();
+        return new RestGenericItemReader(config, config.getRest(), jobParameters, restTemplate, retryTemplate, meterRegistry);
     }
 
     // ── NONE strategy ────────────────────────────────────────────────────────
@@ -225,5 +233,54 @@ class RestGenericItemReaderTest {
         // Re-opening resets state; buffer from the previous execution must not leak in
         reader.open(new ExecutionContext());
         assertThat(reader.read()).isNull();
+    }
+
+    // ── metrics ──────────────────────────────────────────────────────────────
+
+    @Test
+    void read_noneStrategy_recordsItemAndCallMetrics() throws Exception {
+        SourceConfig config = sourceConfig("https://api.example.com/orders");
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RestGenericItemReader reader = reader(config, Map.of(), registry);
+
+        server.expect(requestTo("https://api.example.com/orders"))
+                .andRespond(withSuccess(
+                        "{\"data\":[{\"id\":\"1\",\"amount\":1},{\"id\":\"2\",\"amount\":2}]}",
+                        MediaType.APPLICATION_JSON));
+
+        reader.open(new ExecutionContext());
+        reader.read();
+        reader.read();
+        reader.read();
+        reader.close();
+
+        assertThat(registry.get("gsbatch.reader.items")
+                .tag("source", "orders").tag("component", "rest-reader")
+                .counter().count()).isEqualTo(2.0);
+        assertThat(registry.get("gsbatch.reader.pages")
+                .tag("source", "orders").tag("component", "rest-reader")
+                .counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("gsbatch.reader.calls")
+                .tag("source", "orders").tag("component", "rest-reader")
+                .timer().count()).isEqualTo(1L);
+    }
+
+    @Test
+    void read_truncatedJsonResponse_recordsErrorMetric() throws Exception {
+        SourceConfig config = sourceConfig("https://api.example.com/orders");
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        RestGenericItemReader reader = reader(config, Map.of(), registry);
+
+        server.expect(requestTo("https://api.example.com/orders"))
+                .andRespond(withSuccess("{\"data\":[", MediaType.APPLICATION_JSON));
+
+        reader.open(new ExecutionContext());
+
+        assertThatThrownBy(reader::read).isInstanceOf(IllegalStateException.class);
+
+        assertThat(registry.get("gsbatch.errors")
+                .tag("source", "orders").tag("component", "rest-reader")
+                .tag("error", "json_extraction")
+                .counter().count()).isEqualTo(1.0);
     }
 }

@@ -15,6 +15,7 @@
  */
 package org.makalisio.gsbatch.core.reader;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.makalisio.gsbatch.core.model.ColumnConfig;
 import org.makalisio.gsbatch.core.model.GenericRecord;
@@ -95,7 +96,73 @@ class SoapGenericItemReaderTest {
                 .hasMessageContaining("DOCTYPE");
     }
 
+    // ── Metrics ──────────────────────────────────────────────────────────────
+
+    @Test
+    void read_normalResponse_recordsItemAndCallMetrics() throws Exception {
+        String response = ENVELOPE_OPEN
+                + "<soapenv:Body><GetTradesResponse>"
+                + "<trade><tradeId>T1</tradeId></trade>"
+                + "</GetTradesResponse></soapenv:Body></soapenv:Envelope>";
+
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        SoapGenericItemReader reader = reader(request -> response, registry);
+        reader.open(new ExecutionContext());
+
+        reader.read();
+        reader.read();
+        reader.close();
+
+        assertThat(registry.get("gsbatch.reader.items")
+                .tag("source", "trades").tag("component", "soap-reader")
+                .counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("gsbatch.reader.calls")
+                .tag("source", "trades").tag("component", "soap-reader")
+                .timer().count()).isEqualTo(1L);
+    }
+
+    @Test
+    void read_soapFault_recordsErrorMetric() {
+        String response = ENVELOPE_OPEN
+                + "<soapenv:Body><soapenv:Fault>"
+                + "<faultstring>Invalid trade date</faultstring>"
+                + "</soapenv:Fault></soapenv:Body></soapenv:Envelope>";
+
+        SimpleMeterRegistry registry = new SimpleMeterRegistry();
+        SoapGenericItemReader reader = reader(request -> response, registry);
+        reader.open(new ExecutionContext());
+
+        assertThatThrownBy(reader::read).isInstanceOf(IllegalStateException.class);
+
+        assertThat(registry.get("gsbatch.errors")
+                .tag("source", "trades").tag("component", "soap-reader")
+                .tag("error", "soap_fault")
+                .counter().count()).isEqualTo(1.0);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    private SoapGenericItemReader reader(SoapGenericItemReader.SoapClient soapClient,
+                                          SimpleMeterRegistry meterRegistry) {
+        SourceConfig sourceConfig = new SourceConfig();
+        sourceConfig.setName("trades");
+        sourceConfig.setType("SOAP");
+
+        ColumnConfig tradeId = new ColumnConfig();
+        tradeId.setName("tradeId");
+        tradeId.setType("STRING");
+        sourceConfig.setColumns(List.of(tradeId));
+
+        SoapConfig soapConfig = new SoapConfig();
+        soapConfig.setEndpoint("https://example.org/TradeService");
+        soapConfig.setSoapAction("http://example.org/GetTrades");
+        soapConfig.setRequestTemplate(ENVELOPE_OPEN
+                + "<soapenv:Body><GetTrades/></soapenv:Body></soapenv:Envelope>");
+        soapConfig.setDataPath("//trade");
+        sourceConfig.setSoap(soapConfig);
+
+        return new SoapGenericItemReader(sourceConfig, soapConfig, Map.of(), soapClient, meterRegistry);
+    }
 
     private SoapGenericItemReader reader(SoapGenericItemReader.SoapClient soapClient) {
         SourceConfig sourceConfig = new SourceConfig();

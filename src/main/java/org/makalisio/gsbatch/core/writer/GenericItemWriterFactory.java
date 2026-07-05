@@ -15,6 +15,8 @@
  */
 package org.makalisio.gsbatch.core.writer;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.makalisio.gsbatch.core.model.ExecutionType;
 import org.makalisio.gsbatch.core.model.GenericRecord;
@@ -24,6 +26,8 @@ import org.makalisio.gsbatch.core.reader.SqlFileLoader;
 import org.makalisio.gsbatch.core.util.BeanNameResolver;
 import org.springframework.batch.item.ItemWriter;
 import org.springframework.beans.factory.BeanFactory;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
@@ -51,6 +55,7 @@ public class GenericItemWriterFactory {
     private final SqlFileLoader sqlFileLoader;
     private final DataSource defaultDataSource;
     private final BeanFactory beanFactory;
+    private final MeterRegistry meterRegistry;
 
     /**
      * @param applicationContext Spring context for resolving JAVA beans
@@ -62,10 +67,38 @@ public class GenericItemWriterFactory {
                                     SqlFileLoader sqlFileLoader,
                                     DataSource defaultDataSource,
                                     BeanFactory beanFactory) {
+        this(applicationContext, sqlFileLoader, defaultDataSource, beanFactory, new SimpleMeterRegistry());
+    }
+
+    /**
+     * @param applicationContext    Spring context for resolving JAVA beans
+     * @param sqlFileLoader         SQL file loader
+     * @param defaultDataSource     primary DataSource
+     * @param beanFactory           for resolving named DataSources
+     * @param meterRegistryProvider resolves the consumer app's {@link MeterRegistry} bean
+     *                              if one exists, otherwise falls back to a private
+     *                              in-memory registry - metrics never prevent startup
+     */
+    @Autowired
+    public GenericItemWriterFactory(ApplicationContext applicationContext,
+                                    SqlFileLoader sqlFileLoader,
+                                    DataSource defaultDataSource,
+                                    BeanFactory beanFactory,
+                                    ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        this(applicationContext, sqlFileLoader, defaultDataSource, beanFactory,
+                meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new));
+    }
+
+    private GenericItemWriterFactory(ApplicationContext applicationContext,
+                                    SqlFileLoader sqlFileLoader,
+                                    DataSource defaultDataSource,
+                                    BeanFactory beanFactory,
+                                    MeterRegistry meterRegistry) {
         this.applicationContext = applicationContext;
         this.sqlFileLoader = sqlFileLoader;
         this.defaultDataSource = defaultDataSource;
         this.beanFactory = beanFactory;
+        this.meterRegistry = meterRegistry;
         log.info("GenericItemWriterFactory initialized");
     }
 
@@ -123,7 +156,7 @@ public class GenericItemWriterFactory {
         log.info("Source '{}' - SQL writer: {}/{}",
                 config.getName(), writerConfig.getSqlDirectory(), writerConfig.getSqlFile());
 
-        return new SqlGenericItemWriter(writerConfig, sqlFileLoader, dataSource, config.getName());
+        return new SqlGenericItemWriter(writerConfig, sqlFileLoader, dataSource, config.getName(), meterRegistry);
     }
 
     /**

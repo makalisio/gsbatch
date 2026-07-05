@@ -18,7 +18,10 @@ package org.makalisio.gsbatch.core.reader;
 import com.jayway.jsonpath.Configuration;
 import com.jayway.jsonpath.JsonPath;
 import com.jayway.jsonpath.Option;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.makalisio.gsbatch.core.metrics.GsbatchMetrics;
 import org.makalisio.gsbatch.core.model.ColumnConfig;
 import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.RestConfig;
@@ -74,6 +77,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
     private String resolvedBody;
 
     private final ColumnValueConverter columnValueConverter = new ColumnValueConverter();
+    private final GsbatchMetrics metrics;
 
     /**
      * @param sourceConfig    source configuration from YAML
@@ -87,11 +91,29 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
                                  Map<String, Object> jobParameters,
                                  RestTemplate restTemplate,
                                  RetryTemplate retryTemplate) {
+        this(sourceConfig, restConfig, jobParameters, restTemplate, retryTemplate, new SimpleMeterRegistry());
+    }
+
+    /**
+     * @param sourceConfig    source configuration from YAML
+     * @param restConfig      REST-specific configuration
+     * @param jobParameters   job parameters for bind variable resolution
+     * @param restTemplate    configured RestTemplate with auth interceptor
+     * @param retryTemplate   configured RetryTemplate for transient errors
+     * @param meterRegistry   registry metrics are published to (see {@link GsbatchMetrics})
+     */
+    public RestGenericItemReader(SourceConfig sourceConfig,
+                                 RestConfig restConfig,
+                                 Map<String, Object> jobParameters,
+                                 RestTemplate restTemplate,
+                                 RetryTemplate retryTemplate,
+                                 MeterRegistry meterRegistry) {
         this.sourceConfig = sourceConfig;
         this.restConfig = restConfig;
         this.jobParameters = Collections.unmodifiableMap(jobParameters);
         this.restTemplate = restTemplate;
         this.retryTemplate = retryTemplate;
+        this.metrics = new GsbatchMetrics(meterRegistry, sourceConfig.getName(), "rest-reader");
 
         // JsonPath configuration: suppress exceptions, return null for missing paths
         this.jsonPathConfig = Configuration.builder()
@@ -138,6 +160,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
         GenericRecord record = buffer.poll();
         if (record != null) {
             itemsRead++;
+            metrics.itemsRead(1);
         }
 
         return record;
@@ -154,30 +177,38 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
     //  Pagination
     // ─────────────────────────────────────────────────────────────────────────
 
-    private void fetchNextPage() {
+    private void fetchNextPage() throws Exception {
         Map<String, String> pageParams = new HashMap<>(resolvedQueryParams);
         pageParams.putAll(paginationHandler.nextPageParams());
 
         fetchPage(buildUrl(resolvedUrl, pageParams));
     }
 
-    private void fetchPage(String url) {
+    private void fetchPage(String url) throws Exception {
         log.debug("Fetching page: {}", url);
 
-        // Execute HTTP request with retry
-        String jsonResponse = retryTemplate.execute(context -> {
-            ResponseEntity<String> response = restTemplate.exchange(
-                    url, HttpMethod.valueOf(restConfig.getMethod()),
-                    buildRequestEntity(), String.class
-            );
+        // Execute HTTP request with retry, timing the full call (including any retries)
+        String jsonResponse;
+        try {
+            jsonResponse = metrics.recordCall(() -> retryTemplate.execute(context -> {
+                ResponseEntity<String> response = restTemplate.exchange(
+                        url, HttpMethod.valueOf(restConfig.getMethod()),
+                        buildRequestEntity(), String.class
+                );
 
-            if (!response.getStatusCode().is2xxSuccessful()) {
-                throw new IllegalStateException(
-                        "HTTP request failed with status: " + response.getStatusCode());
-            }
+                if (!response.getStatusCode().is2xxSuccessful()) {
+                    throw new IllegalStateException(
+                            "HTTP request failed with status: " + response.getStatusCode());
+                }
 
-            return response.getBody();
-        });
+                return response.getBody();
+            }));
+        } catch (Exception e) {
+            metrics.error("http_call");
+            throw e;
+        }
+
+        metrics.pageFetched();
 
         if (jsonResponse == null || jsonResponse.isBlank()) {
             log.warn("Empty response from API");
@@ -241,6 +272,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
             // (invalid JSON, unexpected schema) - not that pagination is exhausted.
             // Returning an empty list would be indistinguishable from a legitimate
             // last page and would silently truncate the ingestion.
+            metrics.error("json_extraction");
             throw new IllegalStateException(String.format(
                     "Failed to extract items from JSON response using path '%s' for source '%s': %s",
                     restConfig.getDataPath(), sourceConfig.getName(), e.getMessage()), e);

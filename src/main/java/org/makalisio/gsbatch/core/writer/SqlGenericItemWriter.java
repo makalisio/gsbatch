@@ -15,7 +15,10 @@
  */
 package org.makalisio.gsbatch.core.writer;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.makalisio.gsbatch.core.metrics.GsbatchMetrics;
 import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.WriterConfig;
 import org.makalisio.gsbatch.core.reader.SqlFileLoader;
@@ -61,6 +64,7 @@ public class SqlGenericItemWriter implements ItemWriter<GenericRecord> {
     private final String rawSql;
     private final NamedParameterJdbcTemplate namedJdbcTemplate;
     private final String sourceName;
+    private final GsbatchMetrics metrics;
 
     /**
      * @param writerConfig  writer configuration (sqlDirectory, sqlFile)
@@ -72,8 +76,24 @@ public class SqlGenericItemWriter implements ItemWriter<GenericRecord> {
                                 SqlFileLoader sqlFileLoader,
                                 DataSource dataSource,
                                 String sourceName) {
+        this(writerConfig, sqlFileLoader, dataSource, sourceName, new SimpleMeterRegistry());
+    }
+
+    /**
+     * @param writerConfig  writer configuration (sqlDirectory, sqlFile)
+     * @param sqlFileLoader loader for reading the SQL file
+     * @param dataSource    DataSource to use
+     * @param sourceName    source name (for logging)
+     * @param meterRegistry registry to publish {@code gsbatch.*} metrics to
+     */
+    public SqlGenericItemWriter(WriterConfig writerConfig,
+                                SqlFileLoader sqlFileLoader,
+                                DataSource dataSource,
+                                String sourceName,
+                                MeterRegistry meterRegistry) {
         this.sourceName = sourceName;
         this.namedJdbcTemplate = new NamedParameterJdbcTemplate(dataSource);
+        this.metrics = new GsbatchMetrics(meterRegistry, sourceName, "sql-writer");
 
         // Load SQL once - NamedParameterJdbcTemplate handles
         // :paramName substitution for each row in the chunk
@@ -111,7 +131,13 @@ public class SqlGenericItemWriter implements ItemWriter<GenericRecord> {
         SqlParameterSource[] batchParams = buildBatchParams(chunk);
 
         // Execute batchUpdate - single JDBC round-trip for the whole chunk
-        int[] rowCounts = namedJdbcTemplate.batchUpdate(rawSql, batchParams);
+        int[] rowCounts;
+        try {
+            rowCounts = namedJdbcTemplate.batchUpdate(rawSql, batchParams);
+        } catch (RuntimeException e) {
+            metrics.error("batch_update");
+            throw e;
+        }
 
         // Count affected rows
         int totalAffected = 0;
@@ -123,6 +149,8 @@ public class SqlGenericItemWriter implements ItemWriter<GenericRecord> {
                 skipped++; // SUCCESS_NO_INFO (-2) or EXECUTE_FAILED (-3)
             }
         }
+
+        metrics.itemsWritten(totalAffected);
 
         log.info("Source '{}' - chunk written: {} row(s) affected, {} with no info",
                 sourceName, totalAffected, skipped);
