@@ -75,6 +75,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
     private int currentPage = 0;
     private int currentOffset = 0;
     private String currentCursor = null;
+    private boolean paginationDone = false;
     private Integer totalItems = null;
     private int itemsRead = 0;
 
@@ -85,6 +86,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
     private String resolvedUrl;
     private Map<String, String> resolvedQueryParams;
     private HttpHeaders resolvedHeaders;
+    private String resolvedBody;
 
     /**
      * @param sourceConfig    source configuration from YAML
@@ -120,15 +122,17 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
     public void open(org.springframework.batch.item.ExecutionContext executionContext) {
         log.info("Opening REST reader for source '{}'", sourceConfig.getName());
 
-        // Resolve URL, query params, and headers once
+        // Resolve URL, query params, headers, and body once
         resolvedUrl = resolveVariables(restConfig.getUrl(), "rest.url");
         resolvedQueryParams = resolveQueryParams();
         resolvedHeaders = buildHeaders();
+        resolvedBody = resolveVariables(restConfig.getBody(), "rest.body");
 
         // Reset pagination state
         currentPage = 0;
         currentOffset = 0;
         currentCursor = null;
+        paginationDone = false;
         itemsRead = 0;
         buffer.clear();
 
@@ -138,8 +142,11 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
 
     @Override
     public GenericRecord read() throws Exception {
-        // If buffer is empty, fetch next page
-        if (buffer.isEmpty()) {
+        // Keep fetching pages while the buffer is empty and more pages may exist.
+        // A page can legitimately come back empty (e.g. a filtered CURSOR page)
+        // while still carrying a valid next cursor, so a single fetch attempt
+        // is not enough to decide there is no more data.
+        while (buffer.isEmpty() && !paginationDone) {
             fetchNextPage();
         }
 
@@ -168,11 +175,9 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
 
         if ("NONE".equals(strategy)) {
             // Single call, no pagination
-            if (currentPage > 0) {
-                return;  // Already fetched, no more pages
-            }
             fetchPage(buildUrl(resolvedUrl, resolvedQueryParams));
             currentPage++;
+            paginationDone = true;
         }
         else if ("PAGE_SIZE".equals(strategy)) {
             Map<String, String> pageParams = new HashMap<>(resolvedQueryParams);
@@ -185,6 +190,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
 
             if (items.isEmpty()) {
                 log.debug("Page {} returned 0 items - end of pagination", currentPage);
+                paginationDone = true;
             } else {
                 log.debug("Page {} fetched: {} items", currentPage, items.size());
                 currentPage++;
@@ -201,6 +207,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
 
             if (items.isEmpty()) {
                 log.debug("Offset {} returned 0 items - end of pagination", currentOffset);
+                paginationDone = true;
             } else {
                 log.debug("Offset {} fetched: {} items", currentOffset, items.size());
                 currentOffset += items.size();
@@ -214,11 +221,21 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
 
             String pageUrl = buildUrl(resolvedUrl, pageParams);
             List<GenericRecord> items = fetchPage(pageUrl);
+            // fetchPage() has already updated currentCursor to the next cursor
+            // extracted from this response (or null if the API signaled no more pages).
 
             if (items.isEmpty()) {
-                log.debug("Cursor '{}' returned 0 items - end of pagination", currentCursor);
+                log.debug("Cursor returned 0 items, next cursor: '{}'", currentCursor);
             } else {
-                log.debug("Cursor '{}' fetched: {} items", currentCursor, items.size());
+                log.debug("Cursor fetched: {} items, next cursor: '{}'", items.size(), currentCursor);
+            }
+
+            // Termination must be driven by cursor presence, not by this page's item
+            // count: a filtered/rate-limited page can legitimately return 0 items while
+            // still carrying a valid next cursor, and a page with items can be the last
+            // one if the API returns no next cursor for it.
+            if (currentCursor == null) {
+                paginationDone = true;
             }
         }
         else {
@@ -234,7 +251,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
         String jsonResponse = retryTemplate.execute(context -> {
             ResponseEntity<String> response = restTemplate.exchange(
                     url, HttpMethod.valueOf(restConfig.getMethod()),
-                    new HttpEntity<>(resolvedHeaders), String.class
+                    buildRequestEntity(), String.class
             );
 
             if (!response.getStatusCode().is2xxSuccessful()) {
@@ -522,5 +539,17 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
         }
 
         return headers;
+    }
+
+    private HttpEntity<String> buildRequestEntity() {
+        if (resolvedBody == null) {
+            return new HttpEntity<>(resolvedHeaders);
+        }
+
+        if (!resolvedHeaders.containsKey(HttpHeaders.CONTENT_TYPE)) {
+            resolvedHeaders.setContentType(MediaType.APPLICATION_JSON);
+        }
+
+        return new HttpEntity<>(resolvedBody, resolvedHeaders);
     }
 }
