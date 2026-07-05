@@ -95,6 +95,23 @@ public class StepConfig {
     private String dataSourceBean;
 
     /**
+     * Parses {@link #getType()} into an {@link ExecutionType}.
+     *
+     * @throws IllegalStateException if the value is null, blank, or unrecognized
+     */
+    public ExecutionType getExecutionType() {
+        if (type == null || type.isBlank()) {
+            throw new IllegalStateException("type is required (SQL or JAVA)");
+        }
+        try {
+            return ExecutionType.from(type);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(
+                "type is invalid: '" + type + "'. Accepted values: SQL, JAVA");
+        }
+    }
+
+    /**
      * Validates the configuration of this step.
      *
      * @param stepName step name for error messages ("preprocessing" or "postprocessing")
@@ -103,17 +120,11 @@ public class StepConfig {
     public void validate(String stepName) {
         if (!enabled) return;
 
-        if (type == null || type.isBlank()) {
-            throw new IllegalStateException(
-                stepName + ".type is required (SQL or JAVA)");
-        }
-
         ExecutionType executionType;
         try {
-            executionType = ExecutionType.from(type);
-        } catch (IllegalArgumentException e) {
-            throw new IllegalStateException(
-                stepName + ".type is invalid: '" + type + "'. Accepted values: SQL, JAVA");
+            executionType = getExecutionType();
+        } catch (IllegalStateException e) {
+            throw new IllegalStateException(stepName + "." + e.getMessage());
         }
 
         switch (executionType) {

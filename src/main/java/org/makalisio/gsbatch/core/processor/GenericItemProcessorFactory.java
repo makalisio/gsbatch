@@ -18,6 +18,7 @@ package org.makalisio.gsbatch.core.processor;
 import lombok.extern.slf4j.Slf4j;
 import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.SourceConfig;
+import org.makalisio.gsbatch.core.util.BeanNameResolver;
 import org.springframework.batch.item.ItemProcessor;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
@@ -60,15 +61,7 @@ public class GenericItemProcessorFactory {
         }
 
         String sourceName = config.getName();
-        String beanName = sourceName + "Processor";
-
-        // Fallback: try camelCase (e.g., "calculatorSoapProcessor") when sourceName contains hyphens
-        if (!applicationContext.containsBean(beanName) && sourceName.contains("-")) {
-            String camelCaseBeanName = toCamelCase(sourceName) + "Processor";
-            if (applicationContext.containsBean(camelCaseBeanName)) {
-                beanName = camelCaseBeanName;
-            }
-        }
+        String beanName = BeanNameResolver.resolve(applicationContext, sourceName, "Processor");
 
         log.debug("Looking for processor bean: {}", beanName);
 
@@ -99,21 +92,5 @@ public class GenericItemProcessorFactory {
                 (ItemProcessor<GenericRecord, GenericRecord>) bean;
 
         return processor;
-    }
-
-    /**
-     * Converts a hyphenated name to lowerCamelCase.
-     * Example: "calculator-soap" → "calculatorSoap"
-     */
-    private static String toCamelCase(String hyphenated) {
-        String[] parts = hyphenated.split("-");
-        StringBuilder sb = new StringBuilder(parts[0]);
-        for (int i = 1; i < parts.length; i++) {
-            if (!parts[i].isEmpty()) {
-                sb.append(Character.toUpperCase(parts[i].charAt(0)));
-                sb.append(parts[i].substring(1));
-            }
-        }
-        return sb.toString();
     }
 }

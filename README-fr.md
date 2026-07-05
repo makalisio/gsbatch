@@ -819,6 +819,53 @@ mvn install -P prod
 
 ## 9. Diagnostic des erreurs courantes
 
+### Déboguer la résolution avec `SourceResolutionDiagnostics`
+
+Avant de partir à la chasse à l'une des erreurs ci-dessous,
+`SourceResolutionDiagnostics.describe(sourceName)` répond en un seul appel à
+la question « quel reader/processor/writer/tasklet va réellement s'exécuter
+pour cette source ? » — en chargeant et validant la config YAML exactement
+comme le job le ferait, puis en vérifiant dans le contexte Spring chaque bean
+que les factories iraient chercher (sans instancier quoi que ce soit de
+nouveau, exécuter de SQL, ni faire d'appel réseau).
+
+```java
+@Autowired
+SourceResolutionDiagnostics diagnostics;
+
+SourceResolutionReport report = diagnostics.describe("orders");
+System.out.println(report.format());
+// Source 'orders' (type=SQL):
+//   reader:         SQL via SqlGenericItemReaderBuilder
+//   processor:      pass-through (identity) - no bean 'ordersProcessor' found
+//   writer:         FAIL - no bean named 'ordersWriter' found
+//   preprocessing:  disabled (no-op)
+//   postprocessing: disabled (no-op)
+
+report.isFullyResolvable(); // false - le writer manquant est la cause
+```
+
+gsbatch n'expose pas ceci en HTTP lui-même (c'est une bibliothèque, pas une
+application) — branchez-le où votre application consommatrice le souhaite,
+par exemple un endpoint Actuator personnalisé :
+
+```java
+@Component
+@Endpoint(id = "gsbatch")
+public class GsbatchEndpoint {
+    private final SourceResolutionDiagnostics diagnostics;
+
+    public GsbatchEndpoint(SourceResolutionDiagnostics diagnostics) {
+        this.diagnostics = diagnostics;
+    }
+
+    @ReadOperation
+    public SourceResolutionReport describe(@Selector String sourceName) {
+        return diagnostics.describe(sourceName);
+    }
+}
+```
+
 ### `ReaderNotOpenException`
 
 **Cause :** Le reader n'implémente pas `ItemStream` ou `open()` n'a pas été appelé.
