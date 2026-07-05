@@ -1,0 +1,469 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/makalisio/gsbatch/blob/master/src/main/resources/schema/gsbatch-source-config.schema.json",
+  "title": "gsbatch ingestion source configuration",
+  "description": "Schema for classpath:ingestion/{sourceName}.yml files loaded by YamlSourceConfigLoader and mapped onto SourceConfig. Field names match the Java bean properties exactly (SnakeYAML bean binding, no snake_case translation).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Source name. Optional: if omitted, YamlSourceConfigLoader defaults it to the YAML file name (without .yml)."
+    },
+    "type": {
+      "type": "string",
+      "enum": ["CSV", "SQL", "REST", "SOAP"],
+      "description": "Source type. Case-insensitive at runtime, but use uppercase for consistency. Determines which of path/columns, sqlDirectory+sqlFile, rest, or soap is required below."
+    },
+    "chunkSize": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1000,
+      "description": "Spring Batch chunk size for the ingestion step. Defaults to 1000 if omitted."
+    },
+
+    "path": {
+      "type": "string",
+      "description": "Path to the CSV file. Required when type=CSV."
+    },
+    "delimiter": {
+      "type": "string",
+      "minLength": 1,
+      "default": ";",
+      "description": "CSV column delimiter."
+    },
+    "skipHeader": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether to skip the first (header) line of the CSV file."
+    },
+    "columns": {
+      "type": "array",
+      "description": "Column definitions. Required and non-empty when type=CSV. Optional for SQL (explicit column mapping instead of JDBC metadata auto-mapping) and for REST/SOAP (drives JSON/XPath extraction and type conversion).",
+      "items": { "$ref": "#/definitions/columnConfig" }
+    },
+
+    "sqlDirectory": {
+      "type": "string",
+      "description": "Directory containing the SQL file. Required when type=SQL. Resolved in order: absolute path, 'classpath:' prefix (e.g. 'classpath:sql'), then filesystem path relative to the working directory."
+    },
+    "sqlFile": {
+      "type": "string",
+      "description": "SQL file name inside sqlDirectory. Required when type=SQL."
+    },
+    "fetchSize": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1000,
+      "description": "JDBC fetch size for the SQL cursor reader."
+    },
+    "dataSourceBean": {
+      "type": "string",
+      "description": "Name of the Spring DataSource bean to use for the SQL reader, if multiple DataSources are declared. Defaults to the primary DataSource."
+    },
+
+    "rest": {
+      "$ref": "#/definitions/restConfig",
+      "description": "REST API configuration. Required when type=REST."
+    },
+    "soap": {
+      "$ref": "#/definitions/soapConfig",
+      "description": "SOAP WebService configuration. Required when type=SOAP."
+    },
+
+    "preprocessing": {
+      "$ref": "#/definitions/stepConfig",
+      "description": "Optional tasklet executed before the ingestion step."
+    },
+    "postprocessing": {
+      "$ref": "#/definitions/stepConfig",
+      "description": "Optional tasklet executed after the ingestion step."
+    },
+
+    "writer": {
+      "$ref": "#/definitions/writerConfig",
+      "description": "Declarative writer configuration. If omitted entirely, the framework looks up a Spring bean named '{sourceName}Writer' (required in that case)."
+    }
+  },
+
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "CSV" } }, "required": ["type"] },
+      "then": {
+        "required": ["path", "columns"],
+        "properties": {
+          "columns": { "type": "array", "minItems": 1 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "SQL" } }, "required": ["type"] },
+      "then": { "required": ["sqlDirectory", "sqlFile"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "REST" } }, "required": ["type"] },
+      "then": {
+        "required": ["rest"],
+        "properties": {
+          "columns": {
+            "type": "array",
+            "items": { "required": ["name", "type"] }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "SOAP" } }, "required": ["type"] },
+      "then": {
+        "required": ["soap"],
+        "properties": {
+          "columns": {
+            "type": "array",
+            "items": { "required": ["name", "type"] }
+          }
+        }
+      }
+    }
+  ],
+
+  "definitions": {
+
+    "columnConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Column name. For CSV, matches the header/tokenizer field name. For SQL explicit mapping, matches the ResultSet column label."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["STRING", "INTEGER", "LONG", "DECIMAL", "DOUBLE", "BOOLEAN", "DATE", "DATETIME"],
+          "description": "Value type used for conversion. Required for REST/SOAP sources (a missing type fails fast at config load). Not used by CSV or SQL readers, which convert independently."
+        },
+        "format": {
+          "type": "string",
+          "description": "Format pattern used for DATE/DATETIME conversion, e.g. 'yyyy-MM-dd'. Ignored for other types."
+        },
+        "jsonPath": {
+          "type": "string",
+          "description": "JsonPath expression to extract this field (REST sources only). If omitted, the JSON key is assumed to equal the column name."
+        },
+        "xpath": {
+          "type": "string",
+          "description": "XPath expression, relative to the matched item node, to extract this field (SOAP sources only). If omitted, defaults to './{name}/text()'."
+        },
+        "required": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this column must be non-null. Declarative only; not currently enforced by the readers."
+        },
+        "defaultValue": {
+          "type": "string",
+          "description": "Default value used when the column is missing or empty. Declarative only; not currently applied by the readers."
+        }
+      }
+    },
+
+    "restConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Base URL of the REST API endpoint. May contain ':paramName' bind variables resolved from jobParameters, and '${VAR}' environment variable placeholders."
+        },
+        "method": {
+          "type": "string",
+          "enum": ["GET", "POST"],
+          "default": "GET"
+        },
+        "queryParams": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Query parameters appended to the URL. Values may contain ':paramName' and '${VAR}' placeholders."
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "HTTP headers sent with every request. Values may contain ':paramName' and '${VAR}' placeholders."
+        },
+        "body": {
+          "type": "string",
+          "description": "Optional request body for POST requests (expected to be JSON). May contain ':paramName' and '${VAR}' placeholders."
+        },
+        "auth": { "$ref": "#/definitions/restAuthConfig" },
+        "dataPath": {
+          "type": "string",
+          "default": "$",
+          "description": "JsonPath expression selecting the array (or single object) of items in the response body."
+        },
+        "pagination": { "$ref": "#/definitions/restPaginationConfig" },
+        "retry": { "$ref": "#/definitions/restRetryConfig" }
+      }
+    },
+
+    "restAuthConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["NONE", "API_KEY", "BEARER", "OAUTH2_CLIENT_CREDENTIALS"],
+          "default": "NONE",
+          "description": "OAUTH2_CLIENT_CREDENTIALS passes config validation but is not yet implemented (RestGenericItemReaderBuilder throws UnsupportedOperationException at build time)."
+        },
+        "apiKey": {
+          "type": "string",
+          "description": "Required when type=API_KEY. Supports '${VAR}' environment variable resolution."
+        },
+        "headerName": {
+          "type": "string",
+          "default": "X-Api-Key",
+          "description": "HTTP header name used to carry the API key (type=API_KEY only)."
+        },
+        "bearerToken": {
+          "type": "string",
+          "description": "Required when type=BEARER. Supports '${VAR}' environment variable resolution."
+        },
+        "tokenUrl": { "type": "string", "description": "Required when type=OAUTH2_CLIENT_CREDENTIALS." },
+        "clientId": { "type": "string", "description": "Required when type=OAUTH2_CLIENT_CREDENTIALS." },
+        "clientSecret": { "type": "string", "description": "Required when type=OAUTH2_CLIENT_CREDENTIALS." },
+        "scope": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "API_KEY" } }, "required": ["type"] },
+          "then": { "required": ["apiKey"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "BEARER" } }, "required": ["type"] },
+          "then": { "required": ["bearerToken"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "OAUTH2_CLIENT_CREDENTIALS" } }, "required": ["type"] },
+          "then": { "required": ["tokenUrl", "clientId", "clientSecret"] }
+        }
+      ]
+    },
+
+    "restPaginationConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "enum": ["NONE", "PAGE_SIZE", "OFFSET_LIMIT", "CURSOR", "LINK_HEADER"],
+          "default": "NONE",
+          "description": "LINK_HEADER passes config validation but is not yet implemented (RestGenericItemReader throws UnsupportedOperationException at read time)."
+        },
+        "pageParam": { "type": "string", "default": "page", "description": "Required when strategy=PAGE_SIZE." },
+        "sizeParam": { "type": "string", "default": "size", "description": "Required when strategy=PAGE_SIZE." },
+        "pageSize": { "type": "integer", "minimum": 1, "default": 100 },
+        "offsetParam": { "type": "string", "default": "offset", "description": "Required when strategy=OFFSET_LIMIT." },
+        "limitParam": { "type": "string", "default": "limit", "description": "Required when strategy=OFFSET_LIMIT." },
+        "cursorPath": {
+          "type": "string",
+          "description": "JsonPath to the next-page cursor value in the response. Required when strategy=CURSOR. A null/absent cursor signals the last page."
+        },
+        "cursorParam": { "type": "string", "default": "cursor", "description": "Required when strategy=CURSOR." },
+        "totalPath": {
+          "type": "string",
+          "description": "Optional JsonPath to a total-item-count field, used only for progress logging."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "strategy": { "const": "PAGE_SIZE" } }, "required": ["strategy"] },
+          "then": { "required": ["pageParam", "sizeParam"] }
+        },
+        {
+          "if": { "properties": { "strategy": { "const": "OFFSET_LIMIT" } }, "required": ["strategy"] },
+          "then": { "required": ["offsetParam", "limitParam"] }
+        },
+        {
+          "if": { "properties": { "strategy": { "const": "CURSOR" } }, "required": ["strategy"] },
+          "then": { "required": ["cursorPath", "cursorParam"] }
+        }
+      ]
+    },
+
+    "restRetryConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxRetries": { "type": "integer", "minimum": 0, "default": 3 },
+        "retryDelay": { "type": "integer", "minimum": 0, "default": 2000, "description": "Milliseconds between retries." },
+        "retryOnHttpCodes": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "default": [429, 503, 504]
+        }
+      }
+    },
+
+    "soapConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["endpoint", "requestTemplate", "dataPath"],
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "pattern": "^https?://",
+          "description": "SOAP endpoint URL. Must start with http:// or https://."
+        },
+        "soapAction": {
+          "type": "string",
+          "description": "SOAPAction header value. Required when soapVersion=1.1; optional for 1.2."
+        },
+        "soapVersion": {
+          "type": "string",
+          "enum": ["1.1", "1.2"],
+          "default": "1.1"
+        },
+        "wsdl": {
+          "type": "string",
+          "description": "WSDL URL, for documentation purposes only - not used at runtime."
+        },
+        "requestTemplate": {
+          "type": "string",
+          "pattern": "(<soapenv:Envelope|<soap:Envelope|<SOAP-ENV:Envelope)",
+          "description": "Inline SOAP envelope XML template. Must contain a recognized SOAP envelope tag. May contain ':paramName' placeholders resolved via requestParams. Namespaces must be hardcoded in the template."
+        },
+        "requestParams": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Maps template placeholder names to static values or ':paramName'/'${VAR}' expressions."
+        },
+        "auth": { "$ref": "#/definitions/soapAuthConfig" },
+        "dataPath": {
+          "type": "string",
+          "description": "XPath expression selecting the repeating item nodes in the SOAP response (evaluated against the full envelope)."
+        },
+        "namespaceAware": {
+          "type": "boolean",
+          "default": true,
+          "description": "Set to false when the response uses a default namespace and dataPath/column xpath should match local names without namespace qualification."
+        },
+        "connectionTimeout": { "type": "integer", "minimum": 1, "default": 30000 },
+        "readTimeout": { "type": "integer", "minimum": 1, "default": 60000 }
+      }
+    },
+
+    "soapAuthConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["NONE", "BASIC", "WS_SECURITY", "CUSTOM_HEADER"],
+          "default": "NONE"
+        },
+        "username": { "type": "string", "description": "Required when type=BASIC or WS_SECURITY. Supports '${VAR}'." },
+        "password": { "type": "string", "description": "Required when type=BASIC or WS_SECURITY. Supports '${VAR}'." },
+        "passwordType": {
+          "type": "string",
+          "enum": ["PasswordText", "PasswordDigest"],
+          "default": "PasswordText",
+          "description": "Used only when type=WS_SECURITY."
+        },
+        "headerName": { "type": "string", "description": "Required when type=CUSTOM_HEADER." },
+        "headerValue": { "type": "string", "description": "Required when type=CUSTOM_HEADER. Supports '${VAR}'." }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "enum": ["BASIC", "WS_SECURITY"] } },
+            "required": ["type"]
+          },
+          "then": { "required": ["username", "password"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "CUSTOM_HEADER" } }, "required": ["type"] },
+          "then": { "required": ["headerName", "headerValue"] }
+        }
+      ]
+    },
+
+    "writerConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["SQL", "JAVA"]
+        },
+        "sqlDirectory": { "type": "string", "description": "Required when type=SQL." },
+        "sqlFile": { "type": "string", "description": "Required when type=SQL. Must contain a single INSERT/UPDATE/MERGE/DELETE statement." },
+        "beanName": { "type": "string", "description": "Required when type=JAVA. Must be a Spring ItemWriter bean." },
+        "dataSourceBean": { "type": "string" },
+        "onError": {
+          "type": "string",
+          "enum": ["FAIL", "SKIP"],
+          "default": "FAIL"
+        },
+        "skipLimit": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10,
+          "description": "Used only when onError=SKIP."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "SQL" } }, "required": ["type"] },
+          "then": { "required": ["sqlDirectory", "sqlFile"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "JAVA" } }, "required": ["type"] },
+          "then": { "required": ["beanName"] }
+        }
+      ]
+    },
+
+    "stepConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "If false (or absent), this step is a no-op regardless of the other fields below."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["SQL", "JAVA"],
+          "description": "Required when enabled=true."
+        },
+        "sqlDirectory": { "type": "string", "description": "Required when enabled=true and type=SQL." },
+        "sqlFile": { "type": "string", "description": "Required when enabled=true and type=SQL. May contain several ';'-separated statements run in one transaction." },
+        "beanName": { "type": "string", "description": "Required when enabled=true and type=JAVA. Must be a Spring Tasklet bean." },
+        "dataSourceBean": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "enabled": { "const": true } }, "required": ["enabled"] },
+          "then": {
+            "required": ["type"],
+            "allOf": [
+              {
+                "if": { "properties": { "type": { "const": "SQL" } }, "required": ["type"] },
+                "then": { "required": ["sqlDirectory", "sqlFile"] }
+              },
+              {
+                "if": { "properties": { "type": { "const": "JAVA" } }, "required": ["type"] },
+                "then": { "required": ["beanName"] }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

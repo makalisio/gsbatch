@@ -157,6 +157,20 @@ public class RestConfig {
          * OAuth2 scope (optional).
          */
         private String scope;
+
+        /**
+         * Parses {@link #getType()} into a {@link RestAuthType}.
+         *
+         * @throws IllegalStateException if the value is null, blank, or unrecognized
+         */
+        public RestAuthType getAuthType() {
+            try {
+                return RestAuthType.from(type);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalStateException(
+                        "rest.auth.type must be NONE, API_KEY, BEARER, or OAUTH2_CLIENT_CREDENTIALS, got: " + type);
+            }
+        }
     }
 
     // ── JSON EXTRACTION ──────────────────────────────────────────────────────
@@ -235,6 +249,21 @@ public class RestConfig {
          * Example: "$.meta.total"
          */
         private String totalPath;
+
+        /**
+         * Parses {@link #getStrategy()} into a {@link PaginationStrategy}.
+         *
+         * @throws IllegalStateException if the value is null, blank, or unrecognized
+         */
+        public PaginationStrategy getPaginationStrategy() {
+            try {
+                return PaginationStrategy.from(strategy);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalStateException(
+                        "rest.pagination.strategy must be NONE, PAGE_SIZE, OFFSET_LIMIT, CURSOR, or LINK_HEADER, got: "
+                                + strategy);
+            }
+        }
     }
 
     // ── RETRY ────────────────────────────────────────────────────────────────
@@ -294,65 +323,62 @@ public class RestConfig {
         }
 
         // Validate auth
-        String authType = auth.getType().toUpperCase();
-        if (!List.of("NONE", "API_KEY", "BEARER", "OAUTH2_CLIENT_CREDENTIALS").contains(authType)) {
-            throw new IllegalStateException(
-                "rest.auth.type must be NONE, API_KEY, BEARER, or OAUTH2_CLIENT_CREDENTIALS, got: " + authType);
-        }
+        RestAuthType authType = auth.getAuthType();
 
-        if ("API_KEY".equals(authType) && (auth.getApiKey() == null || auth.getApiKey().isBlank())) {
-            throw new IllegalStateException("rest.auth.apiKey is required when type=API_KEY");
-        }
-
-        if ("BEARER".equals(authType) && (auth.getBearerToken() == null || auth.getBearerToken().isBlank())) {
-            throw new IllegalStateException("rest.auth.bearerToken is required when type=BEARER");
-        }
-
-        if ("OAUTH2_CLIENT_CREDENTIALS".equals(authType)) {
-            if (auth.getTokenUrl() == null || auth.getTokenUrl().isBlank()) {
-                throw new IllegalStateException("rest.auth.tokenUrl is required when type=OAUTH2_CLIENT_CREDENTIALS");
+        switch (authType) {
+            case API_KEY -> {
+                if (auth.getApiKey() == null || auth.getApiKey().isBlank()) {
+                    throw new IllegalStateException("rest.auth.apiKey is required when type=API_KEY");
+                }
             }
-            if (auth.getClientId() == null || auth.getClientId().isBlank()) {
-                throw new IllegalStateException("rest.auth.clientId is required when type=OAUTH2_CLIENT_CREDENTIALS");
+            case BEARER -> {
+                if (auth.getBearerToken() == null || auth.getBearerToken().isBlank()) {
+                    throw new IllegalStateException("rest.auth.bearerToken is required when type=BEARER");
+                }
             }
-            if (auth.getClientSecret() == null || auth.getClientSecret().isBlank()) {
-                throw new IllegalStateException("rest.auth.clientSecret is required when type=OAUTH2_CLIENT_CREDENTIALS");
+            case OAUTH2_CLIENT_CREDENTIALS -> {
+                if (auth.getTokenUrl() == null || auth.getTokenUrl().isBlank()) {
+                    throw new IllegalStateException("rest.auth.tokenUrl is required when type=OAUTH2_CLIENT_CREDENTIALS");
+                }
+                if (auth.getClientId() == null || auth.getClientId().isBlank()) {
+                    throw new IllegalStateException("rest.auth.clientId is required when type=OAUTH2_CLIENT_CREDENTIALS");
+                }
+                if (auth.getClientSecret() == null || auth.getClientSecret().isBlank()) {
+                    throw new IllegalStateException("rest.auth.clientSecret is required when type=OAUTH2_CLIENT_CREDENTIALS");
+                }
             }
+            case NONE -> { /* nothing to validate */ }
         }
 
         // Validate pagination
-        String paginationStrategy = pagination.getStrategy().toUpperCase();
-        if (!List.of("NONE", "PAGE_SIZE", "OFFSET_LIMIT", "CURSOR", "LINK_HEADER").contains(paginationStrategy)) {
-            throw new IllegalStateException(
-                "rest.pagination.strategy must be NONE, PAGE_SIZE, OFFSET_LIMIT, CURSOR, or LINK_HEADER, got: " +
-                paginationStrategy);
-        }
+        PaginationStrategy paginationStrategy = pagination.getPaginationStrategy();
 
-        if ("PAGE_SIZE".equals(paginationStrategy)) {
-            if (pagination.getPageParam() == null || pagination.getPageParam().isBlank()) {
-                throw new IllegalStateException("rest.pagination.pageParam is required when strategy=PAGE_SIZE");
+        switch (paginationStrategy) {
+            case PAGE_SIZE -> {
+                if (pagination.getPageParam() == null || pagination.getPageParam().isBlank()) {
+                    throw new IllegalStateException("rest.pagination.pageParam is required when strategy=PAGE_SIZE");
+                }
+                if (pagination.getSizeParam() == null || pagination.getSizeParam().isBlank()) {
+                    throw new IllegalStateException("rest.pagination.sizeParam is required when strategy=PAGE_SIZE");
+                }
             }
-            if (pagination.getSizeParam() == null || pagination.getSizeParam().isBlank()) {
-                throw new IllegalStateException("rest.pagination.sizeParam is required when strategy=PAGE_SIZE");
+            case OFFSET_LIMIT -> {
+                if (pagination.getOffsetParam() == null || pagination.getOffsetParam().isBlank()) {
+                    throw new IllegalStateException("rest.pagination.offsetParam is required when strategy=OFFSET_LIMIT");
+                }
+                if (pagination.getLimitParam() == null || pagination.getLimitParam().isBlank()) {
+                    throw new IllegalStateException("rest.pagination.limitParam is required when strategy=OFFSET_LIMIT");
+                }
             }
-        }
-
-        if ("OFFSET_LIMIT".equals(paginationStrategy)) {
-            if (pagination.getOffsetParam() == null || pagination.getOffsetParam().isBlank()) {
-                throw new IllegalStateException("rest.pagination.offsetParam is required when strategy=OFFSET_LIMIT");
+            case CURSOR -> {
+                if (pagination.getCursorPath() == null || pagination.getCursorPath().isBlank()) {
+                    throw new IllegalStateException("rest.pagination.cursorPath is required when strategy=CURSOR");
+                }
+                if (pagination.getCursorParam() == null || pagination.getCursorParam().isBlank()) {
+                    throw new IllegalStateException("rest.pagination.cursorParam is required when strategy=CURSOR");
+                }
             }
-            if (pagination.getLimitParam() == null || pagination.getLimitParam().isBlank()) {
-                throw new IllegalStateException("rest.pagination.limitParam is required when strategy=OFFSET_LIMIT");
-            }
-        }
-
-        if ("CURSOR".equals(paginationStrategy)) {
-            if (pagination.getCursorPath() == null || pagination.getCursorPath().isBlank()) {
-                throw new IllegalStateException("rest.pagination.cursorPath is required when strategy=CURSOR");
-            }
-            if (pagination.getCursorParam() == null || pagination.getCursorParam().isBlank()) {
-                throw new IllegalStateException("rest.pagination.cursorParam is required when strategy=CURSOR");
-            }
+            case NONE, LINK_HEADER -> { /* nothing further to validate */ }
         }
 
         if (pagination.getPageSize() <= 0) {

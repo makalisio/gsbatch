@@ -17,6 +17,7 @@ package org.makalisio.gsbatch.core.reader;
 
 import lombok.extern.slf4j.Slf4j;
 import org.makalisio.gsbatch.core.model.GenericRecord;
+import org.makalisio.gsbatch.core.model.SoapAuthType;
 import org.makalisio.gsbatch.core.model.SoapConfig;
 import org.makalisio.gsbatch.core.model.SourceConfig;
 import org.makalisio.gsbatch.core.util.VariableResolver;
@@ -118,7 +119,7 @@ public class SoapGenericItemReaderBuilder {
         public String call(String soapRequest) throws Exception {
             // WS-Security travels inside the SOAP envelope itself, so the
             // UsernameToken must be injected before the request is sent
-            if ("WS_SECURITY".equals(config.getAuth().getType().toUpperCase())) {
+            if (config.getAuth().getAuthType() == SoapAuthType.WS_SECURITY) {
                 soapRequest = injectWsSecurity(soapRequest);
             }
 
@@ -186,30 +187,17 @@ public class SoapGenericItemReaderBuilder {
         }
 
         private void applyAuthentication(HttpHeaders headers, String soapRequest) {
-            String authType = config.getAuth().getType().toUpperCase();
+            SoapAuthType authType = config.getAuth().getAuthType();
 
             log.debug("Source '{}' - applying authentication: {}", sourceName, authType);
 
             switch (authType) {
-                case "NONE":
-                    // No authentication
-                    break;
-
-                case "BASIC":
-                    applyBasicAuth(headers);
-                    break;
-
-                case "WS_SECURITY":
-                    // Already handled in call(): the UsernameToken is injected into
-                    // the SOAP envelope itself, not into HTTP headers
-                    break;
-
-                case "CUSTOM_HEADER":
-                    applyCustomHeader(headers);
-                    break;
-
-                default:
-                    throw new IllegalStateException("Unknown auth type: " + authType);
+                case NONE -> { /* no authentication */ }
+                case BASIC -> applyBasicAuth(headers);
+                case WS_SECURITY -> { /* already handled in call(): the UsernameToken is
+                                         injected into the SOAP envelope itself, not into
+                                         HTTP headers */ }
+                case CUSTOM_HEADER -> applyCustomHeader(headers);
             }
         }
 

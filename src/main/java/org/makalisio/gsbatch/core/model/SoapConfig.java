@@ -172,6 +172,20 @@ public class SoapConfig {
          * Supports ${VAR} syntax.
          */
         private String headerValue;
+
+        /**
+         * Parses {@link #getType()} into a {@link SoapAuthType}.
+         *
+         * @throws IllegalStateException if the value is null, blank, or unrecognized
+         */
+        public SoapAuthType getAuthType() {
+            try {
+                return SoapAuthType.from(type);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalStateException(
+                        "soap.auth.type must be NONE, BASIC, WS_SECURITY, or CUSTOM_HEADER, got: " + type);
+            }
+        }
     }
 
     // ── XML EXTRACTION ───────────────────────────────────────────────────────
@@ -261,40 +275,39 @@ public class SoapConfig {
         }
 
         // Validate auth
-        String authType = auth.getType().toUpperCase();
-        if (!java.util.List.of("NONE", "BASIC", "WS_SECURITY", "CUSTOM_HEADER").contains(authType)) {
-            throw new IllegalStateException(
-                "soap.auth.type must be NONE, BASIC, WS_SECURITY, or CUSTOM_HEADER, got: " + authType);
-        }
+        SoapAuthType authType = auth.getAuthType();
 
-        if ("BASIC".equals(authType) || "WS_SECURITY".equals(authType)) {
-            if (auth.getUsername() == null || auth.getUsername().isBlank()) {
-                throw new IllegalStateException(
-                    "soap.auth.username is required when type=" + authType);
+        switch (authType) {
+            case BASIC -> {
+                if (auth.getUsername() == null || auth.getUsername().isBlank()) {
+                    throw new IllegalStateException("soap.auth.username is required when type=" + authType);
+                }
+                if (auth.getPassword() == null || auth.getPassword().isBlank()) {
+                    throw new IllegalStateException("soap.auth.password is required when type=" + authType);
+                }
             }
-            if (auth.getPassword() == null || auth.getPassword().isBlank()) {
-                throw new IllegalStateException(
-                    "soap.auth.password is required when type=" + authType);
+            case WS_SECURITY -> {
+                if (auth.getUsername() == null || auth.getUsername().isBlank()) {
+                    throw new IllegalStateException("soap.auth.username is required when type=" + authType);
+                }
+                if (auth.getPassword() == null || auth.getPassword().isBlank()) {
+                    throw new IllegalStateException("soap.auth.password is required when type=" + authType);
+                }
+                String passwordType = auth.getPasswordType();
+                if (!"PasswordText".equals(passwordType) && !"PasswordDigest".equals(passwordType)) {
+                    throw new IllegalStateException(
+                        "soap.auth.passwordType must be 'PasswordText' or 'PasswordDigest', got: " + passwordType);
+                }
             }
-        }
-
-        if ("WS_SECURITY".equals(authType)) {
-            String passwordType = auth.getPasswordType();
-            if (!"PasswordText".equals(passwordType) && !"PasswordDigest".equals(passwordType)) {
-                throw new IllegalStateException(
-                    "soap.auth.passwordType must be 'PasswordText' or 'PasswordDigest', got: " + passwordType);
+            case CUSTOM_HEADER -> {
+                if (auth.getHeaderName() == null || auth.getHeaderName().isBlank()) {
+                    throw new IllegalStateException("soap.auth.headerName is required when type=CUSTOM_HEADER");
+                }
+                if (auth.getHeaderValue() == null || auth.getHeaderValue().isBlank()) {
+                    throw new IllegalStateException("soap.auth.headerValue is required when type=CUSTOM_HEADER");
+                }
             }
-        }
-
-        if ("CUSTOM_HEADER".equals(authType)) {
-            if (auth.getHeaderName() == null || auth.getHeaderName().isBlank()) {
-                throw new IllegalStateException(
-                    "soap.auth.headerName is required when type=CUSTOM_HEADER");
-            }
-            if (auth.getHeaderValue() == null || auth.getHeaderValue().isBlank()) {
-                throw new IllegalStateException(
-                    "soap.auth.headerValue is required when type=CUSTOM_HEADER");
-            }
+            case NONE -> { /* nothing to validate */ }
         }
 
         if (connectionTimeout <= 0) {

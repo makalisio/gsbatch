@@ -16,6 +16,7 @@
 package org.makalisio.gsbatch.core.writer;
 
 import lombok.extern.slf4j.Slf4j;
+import org.makalisio.gsbatch.core.model.ExecutionType;
 import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.SourceConfig;
 import org.makalisio.gsbatch.core.model.WriterConfig;
@@ -96,16 +97,20 @@ public class GenericItemWriterFactory {
         String type = writerConfig.getType();
         log.debug("Source '{}' - declarative writer, type={}", config.getName(), type);
 
-        if ("SQL".equalsIgnoreCase(type)) {
-            return buildSqlWriter(config, writerConfig);
-        } else if ("JAVA".equalsIgnoreCase(type)) {
-            return buildJavaWriter(config, writerConfig.getBeanName());
-        } else {
+        ExecutionType executionType;
+        try {
+            executionType = ExecutionType.from(type);
+        } catch (IllegalArgumentException e) {
             throw new IllegalStateException(
                     "Invalid writer.type for source '" + config.getName() +
                             "': '" + type + "'. Accepted values: SQL, JAVA"
             );
         }
+
+        return switch (executionType) {
+            case SQL -> buildSqlWriter(config, writerConfig);
+            case JAVA -> buildJavaWriter(config, writerConfig.getBeanName());
+        };
     }
 
     /**

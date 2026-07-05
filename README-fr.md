@@ -234,6 +234,42 @@ Les deux mécanismes s'appliquent aux URLs, SQL et templates de requête :
 
 ## 3. Référence de configuration YAML
 
+### Autocomplétion et validation dans l'IDE (schéma JSON)
+
+gsbatch fournit un schéma JSON pour les fichiers `ingestion/{sourceName}.yml`,
+disponible dans `src/main/resources/schema/gsbatch-source-config.schema.json`.
+Il reproduit exactement les règles de `SourceConfig.validate()` (et des
+validateurs imbriqués `RestConfig`/`SoapConfig`/`WriterConfig`/`StepConfig`),
+ce qui permet de repérer une faute de frappe ou un champ requis manquant
+directement dans l'éditeur, au lieu d'attendre l'échec au démarrage du job.
+
+**VS Code** (avec l'[extension YAML](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml)) :
+ajoutez un commentaire magique en tête de chaque fichier YAML d'ingestion,
+pointant vers le schéma copié/vendored dans votre projet (ou résolu depuis la
+dépendance gsbatch sur le disque) :
+
+```yaml
+# yaml-language-server: $schema=../../chemin/vers/gsbatch-source-config.schema.json
+name: trades
+type: CSV
+...
+```
+
+Vous pouvez aussi mapper le motif une seule fois pour tout le projet, dans
+`.vscode/settings.json` :
+
+```json
+{
+  "yaml.schemas": {
+    "./chemin/vers/gsbatch-source-config.schema.json": "src/main/resources/ingestion/*.yml"
+  }
+}
+```
+
+**IntelliJ IDEA** : *Settings → Languages & Frameworks → Schemas and DTDs →
+JSON Schema Mappings* → ajoutez le fichier de schéma et associez-le au motif
+de fichiers `ingestion/*.yml`.
+
 ### Structure minimale
 
 ```yaml

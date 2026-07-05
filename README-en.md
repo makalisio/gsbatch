@@ -234,6 +234,41 @@ Both mechanisms apply to URLs, SQL queries, and request templates:
 
 ## 3. YAML Configuration Reference
 
+### IDE Autocompletion & Validation (JSON Schema)
+
+gsbatch ships a JSON Schema for `ingestion/{sourceName}.yml` files at
+`src/main/resources/schema/gsbatch-source-config.schema.json`. It mirrors every
+rule enforced by `SourceConfig.validate()` (and the nested `RestConfig`/
+`SoapConfig`/`WriterConfig`/`StepConfig` validators), so typos and missing
+required fields are flagged directly in the editor instead of failing at job
+startup.
+
+**VS Code** (with the [YAML extension](https://marketplace.visualstudio.com/items?itemName=redhat.vscode-yaml)):
+add a magic comment at the top of each ingestion YAML file, pointing at the
+schema copied/vendored into your project (or resolved from the gsbatch
+dependency on disk):
+
+```yaml
+# yaml-language-server: $schema=../../path/to/gsbatch-source-config.schema.json
+name: trades
+type: CSV
+...
+```
+
+Alternatively, map the pattern once for the whole project in `.vscode/settings.json`:
+
+```json
+{
+  "yaml.schemas": {
+    "./path/to/gsbatch-source-config.schema.json": "src/main/resources/ingestion/*.yml"
+  }
+}
+```
+
+**IntelliJ IDEA**: *Settings → Languages & Frameworks → Schemas and DTDs →
+JSON Schema Mappings* → add the schema file and map it to the
+`ingestion/*.yml` file pattern.
+
 ### Minimal Structure
 
 ```yaml
