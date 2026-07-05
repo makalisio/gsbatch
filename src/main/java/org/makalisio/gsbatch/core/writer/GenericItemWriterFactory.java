@@ -21,6 +21,7 @@ import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.SourceConfig;
 import org.makalisio.gsbatch.core.model.WriterConfig;
 import org.makalisio.gsbatch.core.reader.SqlFileLoader;
+import org.makalisio.gsbatch.core.util.BeanNameResolver;
 import org.springframework.batch.item.ItemWriter;
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.context.ApplicationContext;
@@ -139,43 +140,10 @@ public class GenericItemWriterFactory {
 
     private ItemWriter<GenericRecord> buildFromBeanConvention(SourceConfig config) {
         String sourceName = config.getName();
-        String beanName = sourceName + "Writer";
+        String beanName = BeanNameResolver.resolve(applicationContext, sourceName, "Writer");
 
-        // Try direct name first (e.g., "calculator-soapWriter")
-        if (applicationContext.containsBean(beanName)) {
-            log.debug("Source '{}' - convention-based writer, using bean '{}'", sourceName, beanName);
-            return resolveWriterBean(beanName, sourceName);
-        }
-
-        // Fallback: try camelCase (e.g., "calculatorSoapWriter") when sourceName contains hyphens
-        if (sourceName.contains("-")) {
-            String camelCaseBeanName = toCamelCase(sourceName) + "Writer";
-            if (applicationContext.containsBean(camelCaseBeanName)) {
-                log.debug("Source '{}' - convention-based writer, using camelCase bean '{}'",
-                        sourceName, camelCaseBeanName);
-                return resolveWriterBean(camelCaseBeanName, sourceName);
-            }
-        }
-
-        // Neither found — delegate to resolveWriterBean which throws a descriptive error
         log.debug("Source '{}' - convention-based writer, looking for bean '{}'", sourceName, beanName);
         return resolveWriterBean(beanName, sourceName);
-    }
-
-    /**
-     * Converts a hyphenated name to lowerCamelCase.
-     * Example: "exchange-rates-frankfurter" → "exchangeRatesFrankfurter"
-     */
-    private static String toCamelCase(String hyphenated) {
-        String[] parts = hyphenated.split("-");
-        StringBuilder sb = new StringBuilder(parts[0]);
-        for (int i = 1; i < parts.length; i++) {
-            if (!parts[i].isEmpty()) {
-                sb.append(Character.toUpperCase(parts[i].charAt(0)));
-                sb.append(parts[i].substring(1));
-            }
-        }
-        return sb.toString();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

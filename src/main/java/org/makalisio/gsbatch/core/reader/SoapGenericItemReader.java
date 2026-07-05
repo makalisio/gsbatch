@@ -33,9 +33,6 @@ import javax.xml.xpath.XPath;
 import javax.xml.xpath.XPathConstants;
 import javax.xml.xpath.XPathFactory;
 import java.io.StringReader;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.regex.Matcher;
 
@@ -69,8 +66,7 @@ public class SoapGenericItemReader implements ItemStreamReader<GenericRecord> {
     private int itemsRead = 0;
     private boolean responseFetched = false;
 
-    // Cache of compiled DateTimeFormatters, keyed by column format pattern
-    private final Map<String, DateTimeFormatter> dateFormatters = new HashMap<>();
+    private final ColumnValueConverter columnValueConverter = new ColumnValueConverter();
 
     /**
      * @param sourceConfig  source configuration from YAML
@@ -253,63 +249,15 @@ public class SoapGenericItemReader implements ItemStreamReader<GenericRecord> {
             // Evaluate XPath relative to current node
             String value = (String) xpath.evaluate(xpathExpr, node, XPathConstants.STRING);
 
-            // Type conversion
-            Object convertedValue = convertValue(value, column);
+            // Type conversion: XPath text() is blank rather than null when a node
+            // is missing/empty, and blank means "no value" here, same as a JSON null.
+            Object convertedValue = (value == null || value.isBlank())
+                    ? null
+                    : columnValueConverter.convert(value, column);
             recordData.put(columnName, convertedValue);
         }
 
         return new GenericRecord(recordData);
-    }
-
-    private Object convertValue(String value, ColumnConfig column) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-
-        String type = column.getType().toUpperCase();
-
-        try {
-            switch (type) {
-                case "STRING":
-                    return value;
-
-                case "INTEGER":
-                case "LONG":
-                    return Long.parseLong(value.trim());
-
-                case "DECIMAL":
-                case "DOUBLE":
-                    return Double.parseDouble(value.trim());
-
-                case "BOOLEAN":
-                    return Boolean.parseBoolean(value.trim());
-
-                case "DATE":
-                    String format = column.getFormat();
-                    if (format != null && !format.isBlank()) {
-                        return LocalDate.parse(value.trim(), formatterFor(format));
-                    }
-                    return LocalDate.parse(value.trim());
-
-                case "DATETIME":
-                    String datetimeFormat = column.getFormat();
-                    if (datetimeFormat != null && !datetimeFormat.isBlank()) {
-                        return LocalDateTime.parse(value.trim(), formatterFor(datetimeFormat));
-                    }
-                    return LocalDateTime.parse(value.trim());
-
-                default:
-                    return value;
-            }
-        } catch (Exception e) {
-            log.warn("Failed to convert value '{}' to type {} for column {}: {}",
-                     value, type, column.getName(), e.getMessage());
-            return value;
-        }
-    }
-
-    private DateTimeFormatter formatterFor(String pattern) {
-        return dateFormatters.computeIfAbsent(pattern, DateTimeFormatter::ofPattern);
     }
 
     private Document parseXml(String xml) throws Exception {

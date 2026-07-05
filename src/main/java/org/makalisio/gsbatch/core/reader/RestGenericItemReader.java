@@ -15,7 +15,6 @@
  */
 package org.makalisio.gsbatch.core.reader;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.Configuration;
 import com.jayway.jsonpath.JsonPath;
 import com.jayway.jsonpath.Option;
@@ -32,9 +31,6 @@ import org.springframework.retry.support.RetryTemplate;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
@@ -55,8 +51,6 @@ import java.util.*;
  */
 @Slf4j
 public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
-
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final SourceConfig sourceConfig;
     private final RestConfig restConfig;
@@ -79,8 +73,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
     private HttpHeaders resolvedHeaders;
     private String resolvedBody;
 
-    // Cache of compiled DateTimeFormatters, keyed by column format pattern
-    private final Map<String, DateTimeFormatter> dateFormatters = new HashMap<>();
+    private final ColumnValueConverter columnValueConverter = new ColumnValueConverter();
 
     /**
      * @param sourceConfig    source configuration from YAML
@@ -277,83 +270,11 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
             }
 
             // Type conversion
-            Object convertedValue = convertValue(value, column);
+            Object convertedValue = columnValueConverter.convert(value, column);
             recordData.put(columnName, convertedValue);
         }
 
         return new GenericRecord(recordData);
-    }
-
-    private Object convertValue(Object value, ColumnConfig column) {
-        if (value == null) {
-            return null;
-        }
-
-        String type = column.getType().toUpperCase();
-
-        try {
-            switch (type) {
-                case "STRING":
-                    // Map/List from JSON must be serialized as valid JSON, not via toString()
-                    if (value instanceof Map || value instanceof List) {
-                        try {
-                            return OBJECT_MAPPER.writeValueAsString(value);
-                        } catch (Exception e) {
-                            log.warn("Failed to serialize JSON value for column {}: {}",
-                                    column.getName(), e.getMessage());
-                            return value.toString();
-                        }
-                    }
-                    return value.toString();
-
-                case "INTEGER":
-                case "LONG":
-                    if (value instanceof Number) {
-                        return ((Number) value).longValue();
-                    }
-                    return Long.parseLong(value.toString());
-
-                case "DECIMAL":
-                case "DOUBLE":
-                    if (value instanceof Number) {
-                        return ((Number) value).doubleValue();
-                    }
-                    return Double.parseDouble(value.toString());
-
-                case "BOOLEAN":
-                    if (value instanceof Boolean) {
-                        return value;
-                    }
-                    return Boolean.parseBoolean(value.toString());
-
-                case "DATE":
-                    String dateStr = value.toString();
-                    String format = column.getFormat();
-                    if (format != null && !format.isBlank()) {
-                        return LocalDate.parse(dateStr, formatterFor(format));
-                    }
-                    return LocalDate.parse(dateStr);
-
-                case "DATETIME":
-                    String datetimeStr = value.toString();
-                    String datetimeFormat = column.getFormat();
-                    if (datetimeFormat != null && !datetimeFormat.isBlank()) {
-                        return LocalDateTime.parse(datetimeStr, formatterFor(datetimeFormat));
-                    }
-                    return LocalDateTime.parse(datetimeStr);
-
-                default:
-                    return value;
-            }
-        } catch (Exception e) {
-            log.warn("Failed to convert value '{}' to type {} for column {}: {}",
-                    value, type, column.getName(), e.getMessage());
-            return value;  // Return as-is if conversion fails
-        }
-    }
-
-    private DateTimeFormatter formatterFor(String pattern) {
-        return dateFormatters.computeIfAbsent(pattern, DateTimeFormatter::ofPattern);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
