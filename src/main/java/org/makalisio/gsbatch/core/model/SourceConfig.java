@@ -21,6 +21,7 @@ import lombok.ToString;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Configuration model for a data source.
@@ -33,6 +34,22 @@ import java.util.List;
 @Setter
 @ToString
 public class SourceConfig {
+
+    /**
+     * Supported values for {@link #configVersion}. Bump when the YAML shape
+     * changes in a way older consumer code can't just ignore (e.g. a field
+     * changing meaning, not just a new optional field being added).
+     */
+    private static final Set<Integer> SUPPORTED_CONFIG_VERSIONS = Set.of(1);
+
+    /**
+     * Format version of this YAML file. Optional - defaults to 1 (the only
+     * version so far) when absent, so every config written before this field
+     * existed keeps working unchanged. Exists to let a future breaking format
+     * change be detected and rejected with a clear message instead of failing
+     * confusingly deep inside a reader.
+     */
+    private Integer configVersion;
 
     /**
      * Name of the source (e.g., "trades", "orders")
@@ -185,6 +202,16 @@ public class SourceConfig {
     }
 
     /**
+     * Gets the config format version, returning 1 (the only version so far)
+     * if not explicitly set in the YAML.
+     *
+     * @return the effective config version
+     */
+    public Integer getConfigVersion() {
+        return configVersion != null ? configVersion : 1;
+    }
+
+    /**
      * Extracts column names as a String array.
      *
      * @return array of column names
@@ -225,6 +252,12 @@ public class SourceConfig {
     public void validate() {
         if (name == null || name.isBlank()) {
             throw new IllegalStateException("Source name is required");
+        }
+
+        if (!SUPPORTED_CONFIG_VERSIONS.contains(getConfigVersion())) {
+            throw new IllegalStateException(String.format(
+                    "Unsupported configVersion: %d for source: %s. Supported versions: %s",
+                    getConfigVersion(), name, SUPPORTED_CONFIG_VERSIONS));
         }
 
         SourceType sourceType = getSourceType();

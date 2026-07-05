@@ -15,7 +15,10 @@
  */
 package org.makalisio.gsbatch.core.reader;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.makalisio.gsbatch.core.metrics.GsbatchMetrics;
 import org.makalisio.gsbatch.core.model.ColumnConfig;
 import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.SoapConfig;
@@ -67,6 +70,7 @@ public class SoapGenericItemReader implements ItemStreamReader<GenericRecord> {
     private boolean responseFetched = false;
 
     private final ColumnValueConverter columnValueConverter = new ColumnValueConverter();
+    private final GsbatchMetrics metrics;
 
     /**
      * @param sourceConfig  source configuration from YAML
@@ -78,10 +82,26 @@ public class SoapGenericItemReader implements ItemStreamReader<GenericRecord> {
                                   SoapConfig soapConfig,
                                   Map<String, Object> jobParameters,
                                   SoapClient soapClient) {
+        this(sourceConfig, soapConfig, jobParameters, soapClient, new SimpleMeterRegistry());
+    }
+
+    /**
+     * @param sourceConfig  source configuration from YAML
+     * @param soapConfig    SOAP-specific configuration
+     * @param jobParameters job parameters for bind variable resolution
+     * @param soapClient    configured SOAP client with auth
+     * @param meterRegistry registry to publish {@code gsbatch.*} metrics to
+     */
+    public SoapGenericItemReader(SourceConfig sourceConfig,
+                                  SoapConfig soapConfig,
+                                  Map<String, Object> jobParameters,
+                                  SoapClient soapClient,
+                                  MeterRegistry meterRegistry) {
         this.sourceConfig = sourceConfig;
         this.soapConfig = soapConfig;
         this.jobParameters = Collections.unmodifiableMap(jobParameters);
         this.soapClient = soapClient;
+        this.metrics = new GsbatchMetrics(meterRegistry, sourceConfig.getName(), "soap-reader");
 
         log.info("SoapGenericItemReader initialized for source '{}'", sourceConfig.getName());
     }
@@ -114,6 +134,7 @@ public class SoapGenericItemReader implements ItemStreamReader<GenericRecord> {
         GenericRecord record = buffer.poll();
         if (record != null) {
             itemsRead++;
+            metrics.itemsRead(1);
         }
 
         return record;
@@ -138,18 +159,31 @@ public class SoapGenericItemReader implements ItemStreamReader<GenericRecord> {
         log.debug("SOAP request built: {} characters", soapRequest.length());
 
         // Execute SOAP call
-        String soapResponse = soapClient.call(soapRequest);
+        String soapResponse;
+        try {
+            soapResponse = metrics.recordCall(() -> soapClient.call(soapRequest));
+        } catch (Exception e) {
+            metrics.error("soap_call");
+            throw e;
+        }
         log.debug("SOAP response received: {} characters", soapResponse.length());
 
         // Check for SOAP Fault (Q4: B - always fail on fault)
         if (containsSoapFault(soapResponse)) {
             String faultString = extractFaultString(soapResponse);
+            metrics.error("soap_fault");
             throw new IllegalStateException(
                 "SOAP Fault received from endpoint: " + faultString);
         }
 
         // Extract items using XPath
-        List<GenericRecord> items = extractItems(soapResponse);
+        List<GenericRecord> items;
+        try {
+            items = extractItems(soapResponse);
+        } catch (Exception e) {
+            metrics.error("xml_extraction");
+            throw e;
+        }
         log.info("Extracted {} items from SOAP response", items.size());
 
         buffer.addAll(items);

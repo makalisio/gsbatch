@@ -288,6 +288,22 @@ columns:
     format: "yyyy-MM-dd"
 ```
 
+### Config Format Version
+
+Every YAML file optionally supports `configVersion` (defaults to `1`, the
+only version so far, so existing files need no change):
+
+```yaml
+configVersion: 1
+name: trades
+type: CSV
+```
+
+This exists so a future breaking change to the YAML shape can be rejected
+with a clear "unsupported configVersion" error at config-load time, instead
+of failing confusingly deep inside a reader once the format actually
+diverges.
+
 ### With Pre/Post Processing
 
 ```yaml
@@ -728,7 +744,7 @@ Stack: JUnit 5 · Mockito 5 · AssertJ — pure unit tests, no Spring context.
 mvn test
 
 # Current result
-Tests run: 168, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 336, Failures: 0, Errors: 0, Skipped: 0
 ```
 
 ### Test Suite
@@ -803,6 +819,34 @@ mvn install -P prod
 | `dev` (default) | Development |
 | `prod` | Prohibits SNAPSHOT dependencies |
 | `coverage` | JaCoCo report |
+
+### Operational Metrics (Micrometer)
+
+Every reader and writer publishes operational metrics via [Micrometer](https://micrometer.io/),
+tagged with `source` (the source name) and `component` (`rest-reader`, `soap-reader`, `sql-writer`, ...):
+
+| Metric | Type | Description |
+|--------|------|--------------|
+| `gsbatch.reader.items` | counter | Items successfully read |
+| `gsbatch.reader.pages` | counter | Pages fetched (REST pagination depth) |
+| `gsbatch.reader.calls` | timer | Wall-clock time of one HTTP/SOAP call (including retries) |
+| `gsbatch.writer.items` | counter | Rows written |
+| `gsbatch.errors` | counter | Errors, tagged additionally with `error` (e.g. `http_call`, `json_extraction`, `soap_fault`, `batch_update`) |
+| `gsbatch.retry.attempts` | counter | Retry attempts (not counting the initial try) |
+
+gsbatch never requires Micrometer/Actuator to be configured: if the consuming Spring Boot
+application exposes a `MeterRegistry` bean (e.g. via `spring-boot-starter-actuator`), gsbatch
+publishes to it automatically. Otherwise it falls back to a private in-memory `SimpleMeterRegistry`,
+so metrics wiring can never prevent the application from starting.
+
+```yaml
+# application.yml - expose metrics through Actuator/Prometheus if desired
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus, metrics
+```
 
 ### Production Deployment Checklist
 
@@ -936,7 +980,6 @@ retry:
 
 ### Medium Term
 
-- Micrometer metrics / Grafana dashboards
 - Native JSON and XML reading support
 - Partitioning for parallelization
 - OAuth2 client credentials support (REST)

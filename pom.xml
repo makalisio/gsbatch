@@ -171,6 +171,14 @@
             <artifactId>spring-retry</artifactId>
         </dependency>
 
+        <!-- Micrometer for operational metrics (items read/written, HTTP call latency).
+             Falls back to an in-memory SimpleMeterRegistry when the consumer app has no
+             MeterRegistry bean of its own (e.g. no Actuator), so it never breaks startup. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
+
     </dependencies>
 
     <build>

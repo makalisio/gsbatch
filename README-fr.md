@@ -289,6 +289,23 @@ columns:
     format: "yyyy-MM-dd"
 ```
 
+### Version du format de configuration
+
+Chaque fichier YAML supporte de façon optionnelle `configVersion` (par
+défaut `1`, la seule version existante à ce jour — aucun fichier existant
+n'a besoin d'être modifié) :
+
+```yaml
+configVersion: 1
+name: trades
+type: CSV
+```
+
+Ceci permet de rejeter un futur changement cassant du format YAML avec un
+message clair « configVersion non supportée » dès le chargement de la
+config, plutôt que de le découvrir bien plus tard, de façon confuse, au
+fond d'un reader.
+
 ### Avec pre/post processing
 
 ```yaml
@@ -729,7 +746,7 @@ Stack : JUnit 5 · Mockito 5 · AssertJ — tests unitaires purs, sans contexte 
 mvn test
 
 # Résultat actuel
-Tests run: 168, Failures: 0, Errors: 0, Skipped: 0
+Tests run: 336, Failures: 0, Errors: 0, Skipped: 0
 ```
 
 ### Suite de tests
@@ -804,6 +821,34 @@ mvn install -P prod
 | `dev` (défaut) | Développement |
 | `prod` | Interdit les dépendances SNAPSHOT |
 | `coverage` | Rapport JaCoCo |
+
+### Métriques opérationnelles (Micrometer)
+
+Chaque reader et writer publie des métriques opérationnelles via [Micrometer](https://micrometer.io/),
+taguées avec `source` (le nom de la source) et `component` (`rest-reader`, `soap-reader`, `sql-writer`, ...) :
+
+| Métrique | Type | Description |
+|----------|------|--------------|
+| `gsbatch.reader.items` | counter | Items lus avec succès |
+| `gsbatch.reader.pages` | counter | Pages récupérées (profondeur de pagination REST) |
+| `gsbatch.reader.calls` | timer | Temps d'horloge d'un appel HTTP/SOAP (retries inclus) |
+| `gsbatch.writer.items` | counter | Lignes écrites |
+| `gsbatch.errors` | counter | Erreurs, taguées en plus avec `error` (ex. `http_call`, `json_extraction`, `soap_fault`, `batch_update`) |
+| `gsbatch.retry.attempts` | counter | Tentatives de retry (hors tentative initiale) |
+
+gsbatch ne nécessite jamais que Micrometer/Actuator soit configuré : si l'application Spring Boot
+consommatrice expose un bean `MeterRegistry` (par ex. via `spring-boot-starter-actuator`), gsbatch
+y publie automatiquement. Sinon, il se rabat sur un `SimpleMeterRegistry` privé en mémoire, de sorte
+que le câblage des métriques ne peut jamais empêcher le démarrage de l'application.
+
+```yaml
+# application.yml - exposer les métriques via Actuator/Prometheus si souhaité
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus, metrics
+```
 
 ### Checklist de déploiement en production
 
@@ -938,7 +983,6 @@ retry:
 
 ### Moyen terme
 
-- Métriques Micrometer / dashboards Grafana
 - Support lecture JSON et XML natifs
 - Partitioning pour la parallélisation
 - Support OAuth2 client credentials (REST)

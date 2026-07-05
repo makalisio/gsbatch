@@ -15,15 +15,22 @@
  */
 package org.makalisio.gsbatch.core.reader;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
+import org.makalisio.gsbatch.core.metrics.GsbatchMetrics;
 import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.RestAuthType;
 import org.makalisio.gsbatch.core.model.RestConfig;
 import org.makalisio.gsbatch.core.model.SourceConfig;
 import org.makalisio.gsbatch.core.util.VariableResolver;
 import org.springframework.batch.item.ItemStreamReader;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
+import org.springframework.retry.RetryContext;
+import org.springframework.retry.RetryListener;
 import org.springframework.retry.backoff.FixedBackOffPolicy;
 import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
@@ -53,7 +60,24 @@ import java.util.Map;
 @Component
 public class RestGenericItemReaderBuilder {
 
+    private final MeterRegistry meterRegistry;
+
     public RestGenericItemReaderBuilder() {
+        this(new SimpleMeterRegistry());
+    }
+
+    /**
+     * @param meterRegistryProvider resolves the consumer app's {@link MeterRegistry} bean
+     *                              if one exists, otherwise falls back to a private
+     *                              in-memory registry - metrics never prevent startup
+     */
+    @Autowired
+    public RestGenericItemReaderBuilder(ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        this(meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new));
+    }
+
+    private RestGenericItemReaderBuilder(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
         log.info("RestGenericItemReaderBuilder initialized");
     }
 
@@ -82,12 +106,21 @@ public class RestGenericItemReaderBuilder {
         // Build RetryTemplate for transient errors
         RetryTemplate retryTemplate = buildRetryTemplate(restConfig, sourceConfig.getName());
 
+        GsbatchMetrics metrics = new GsbatchMetrics(meterRegistry, sourceConfig.getName(), "rest-reader");
+        retryTemplate.registerListener(new RetryListener() {
+            @Override
+            public <T, E extends Throwable> void onError(RetryContext context, org.springframework.retry.RetryCallback<T, E> callback, Throwable throwable) {
+                metrics.retryAttempted();
+            }
+        });
+
         return new RestGenericItemReader(
                 sourceConfig,
                 restConfig,
                 jobParameters,
                 restTemplate,
-                retryTemplate
+                retryTemplate,
+                meterRegistry
         );
     }
 
@@ -95,7 +128,7 @@ public class RestGenericItemReaderBuilder {
     //  RestTemplate configuration
     // ─────────────────────────────────────────────────────────────────────────
 
-    private RestTemplate buildRestTemplate(RestConfig restConfig, String sourceName) {
+    RestTemplate buildRestTemplate(RestConfig restConfig, String sourceName) {
         RestTemplateBuilder builder = new RestTemplateBuilder()
                 .setConnectTimeout(Duration.ofSeconds(30))
                 .setReadTimeout(Duration.ofSeconds(60));

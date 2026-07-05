@@ -7,6 +7,12 @@
   "additionalProperties": false,
   "required": ["type"],
   "properties": {
+    "configVersion": {
+      "type": "integer",
+      "enum": [1],
+      "default": 1,
+      "description": "Format version of this YAML file. Optional - defaults to 1 (the only version so far). Exists so a future breaking format change can be rejected with a clear message instead of failing confusingly deep inside a reader."
+    },
     "name": {
       "type": "string",
       "description": "Source name. Optional: if omitted, YamlSourceConfigLoader defaults it to the YAML file name (without .yml)."

@@ -15,6 +15,8 @@
  */
 package org.makalisio.gsbatch.core.reader;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.SoapAuthType;
@@ -22,6 +24,8 @@ import org.makalisio.gsbatch.core.model.SoapConfig;
 import org.makalisio.gsbatch.core.model.SourceConfig;
 import org.makalisio.gsbatch.core.util.VariableResolver;
 import org.springframework.batch.item.ItemStreamReader;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -48,7 +52,24 @@ import java.util.Map;
 @Component
 public class SoapGenericItemReaderBuilder {
 
+    private final MeterRegistry meterRegistry;
+
     public SoapGenericItemReaderBuilder() {
+        this(new SimpleMeterRegistry());
+    }
+
+    /**
+     * @param meterRegistryProvider resolves the consumer app's {@link MeterRegistry} bean
+     *                              if one exists, otherwise falls back to a private
+     *                              in-memory registry - metrics never prevent startup
+     */
+    @Autowired
+    public SoapGenericItemReaderBuilder(ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        this(meterRegistryProvider.getIfAvailable(SimpleMeterRegistry::new));
+    }
+
+    private SoapGenericItemReaderBuilder(MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
         log.info("SoapGenericItemReaderBuilder initialized");
     }
 
@@ -77,7 +98,8 @@ public class SoapGenericItemReaderBuilder {
             sourceConfig,
             soapConfig,
             jobParameters,
-            soapClient
+            soapClient,
+            meterRegistry
         );
     }
 
@@ -93,10 +115,18 @@ public class SoapGenericItemReaderBuilder {
 
         RestTemplate restTemplate = new RestTemplate(requestFactory);
 
-        log.debug("Source '{}' - SOAP client configured (connectTimeout={}ms, readTimeout={}ms)", 
+        log.debug("Source '{}' - SOAP client configured (connectTimeout={}ms, readTimeout={}ms)",
                   sourceName, config.getConnectionTimeout(), config.getReadTimeout());
 
-        // Return SOAP client implementation
+        return buildSoapClient(restTemplate, config, sourceName);
+    }
+
+    /**
+     * Package-private overload accepting the {@link RestTemplate} directly, so
+     * tests can bind it to {@code MockRestServiceServer} instead of exercising
+     * real HTTP.
+     */
+    SoapGenericItemReader.SoapClient buildSoapClient(RestTemplate restTemplate, SoapConfig config, String sourceName) {
         return new SoapClientImpl(restTemplate, config, sourceName);
     }
 

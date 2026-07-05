@@ -23,6 +23,41 @@ import static org.assertj.core.api.Assertions.*;
 
 class SourceConfigTest {
 
+    // ── configVersion ─────────────────────────────────────────────────────────
+
+    @Test
+    void getConfigVersion_notSet_defaultsToOne() {
+        assertThat(new SourceConfig().getConfigVersion()).isEqualTo(1);
+    }
+
+    @Test
+    void getConfigVersion_explicitlySet_returnsIt() {
+        SourceConfig sc = new SourceConfig();
+        sc.setConfigVersion(1);
+        assertThat(sc.getConfigVersion()).isEqualTo(1);
+    }
+
+    @Test
+    void validate_configVersionNotSet_passes() {
+        assertThatNoException().isThrownBy(csvConfig()::validate);
+    }
+
+    @Test
+    void validate_supportedConfigVersion_passes() {
+        SourceConfig sc = csvConfig();
+        sc.setConfigVersion(1);
+        assertThatNoException().isThrownBy(sc::validate);
+    }
+
+    @Test
+    void validate_unsupportedConfigVersion_throws() {
+        SourceConfig sc = csvConfig();
+        sc.setConfigVersion(2);
+        assertThatIllegalStateException()
+                .isThrownBy(sc::validate)
+                .withMessageContaining("Unsupported configVersion: 2");
+    }
+
     // ── validate() — champs requis ───────────────────────────────────────────
 
     @Test
