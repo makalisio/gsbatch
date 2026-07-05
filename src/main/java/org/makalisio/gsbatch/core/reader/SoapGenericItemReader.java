@@ -48,7 +48,7 @@ import java.util.regex.Matcher;
  *   <li>Bind variable resolution (:paramName from jobParameters)</li>
  *   <li>Environment variable resolution (${VAR})</li>
  *   <li>XPath extraction from SOAP response</li>
- *   <li>WS-Security UsernameToken authentication (PasswordText)</li>
+ *   <li>WS-Security UsernameToken authentication (PasswordText/PasswordDigest)</li>
  *   <li>Single call (no pagination - Q3: NONE)</li>
  *   <li>SOAP Fault causes immediate failure (Q4: B)</li>
  * </ul>
@@ -315,6 +315,14 @@ public class SoapGenericItemReader implements ItemStreamReader<GenericRecord> {
     private Document parseXml(String xml) throws Exception {
         DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
         factory.setNamespaceAware(soapConfig.isNamespaceAware());
+        // Harden against XXE: SOAP messages must not contain a DTD (SOAP 1.1 §3,
+        // SOAP 1.2 Part 1 §5), so a DOCTYPE in a response is always illegitimate
+        // and rejecting it closes off external-entity file disclosure and SSRF.
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+        factory.setXIncludeAware(false);
+        factory.setExpandEntityReferences(false);
         DocumentBuilder builder = factory.newDocumentBuilder();
         return builder.parse(new InputSource(new StringReader(xml)));
     }
