@@ -16,6 +16,7 @@
 package org.makalisio.gsbatch.core.tasklet;
 
 import lombok.extern.slf4j.Slf4j;
+import org.makalisio.gsbatch.core.model.ExecutionType;
 import org.makalisio.gsbatch.core.model.StepConfig;
 import org.makalisio.gsbatch.core.reader.SqlFileLoader;
 import org.springframework.batch.core.StepContribution;
@@ -106,13 +107,17 @@ public class GenericTasklet implements Tasklet {
                 chunkContext.getStepContext().getStepName(),
                 type);
 
-        if ("SQL".equalsIgnoreCase(type)) {
-            executeSql(contribution);
-        } else if ("JAVA".equalsIgnoreCase(type)) {
-            executeJava(contribution, chunkContext);
-        } else {
+        ExecutionType executionType;
+        try {
+            executionType = ExecutionType.from(type);
+        } catch (IllegalArgumentException e) {
             throw new IllegalStateException(
                 "Unknown step type: '" + type + "'. Accepted values: SQL, JAVA");
+        }
+
+        switch (executionType) {
+            case SQL -> executeSql(contribution);
+            case JAVA -> executeJava(contribution, chunkContext);
         }
 
         return RepeatStatus.FINISHED;

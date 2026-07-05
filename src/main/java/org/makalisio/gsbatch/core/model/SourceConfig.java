@@ -199,6 +199,25 @@ public class SourceConfig {
     }
 
     /**
+     * Parses {@link #getType()} into a {@link SourceType}.
+     *
+     * @return the source type
+     * @throws IllegalStateException if {@link #getType()} is null, blank, or unrecognized
+     */
+    public SourceType getSourceType() {
+        if (type == null || type.isBlank()) {
+            throw new IllegalStateException("Source type is required for source: " + name);
+        }
+        try {
+            return SourceType.from(type);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(String.format(
+                    "Source type is invalid: '%s' for source: %s. Accepted values: %s",
+                    type, name, java.util.Arrays.toString(SourceType.values())));
+        }
+    }
+
+    /**
      * Validates the configuration.
      *
      * @throws IllegalStateException if validation fails
@@ -207,50 +226,47 @@ public class SourceConfig {
         if (name == null || name.isBlank()) {
             throw new IllegalStateException("Source name is required");
         }
-        
-        if (type == null || type.isBlank()) {
-            throw new IllegalStateException("Source type is required for source: " + name);
+
+        SourceType sourceType = getSourceType();
+
+        switch (sourceType) {
+            case CSV -> {
+                if (path == null || path.isBlank()) {
+                    throw new IllegalStateException("Path is required for CSV source: " + name);
+                }
+                if (columns == null || columns.isEmpty()) {
+                    throw new IllegalStateException("Columns configuration is required for CSV source: " + name);
+                }
+                validateColumns(false);
+            }
+            case SQL -> {
+                if (sqlDirectory == null || sqlDirectory.isBlank()) {
+                    throw new IllegalStateException("sqlDirectory is required for SQL source: " + name);
+                }
+                if (sqlFile == null || sqlFile.isBlank()) {
+                    throw new IllegalStateException("sqlFile is required for SQL source: " + name);
+                }
+            }
+            case REST -> {
+                if (rest == null) {
+                    throw new IllegalStateException("rest configuration is required for REST source: " + name);
+                }
+                rest.validate();
+                validateColumns(true);
+            }
+            case SOAP -> {
+                if (soap == null) {
+                    throw new IllegalStateException("soap configuration is required for SOAP source: " + name);
+                }
+                soap.validate();
+                validateColumns(true);
+            }
+            case JSON, XML -> {
+                // Recognized but not yet implemented: GenericItemReaderFactory rejects
+                // these with UnsupportedOperationException when actually building a reader.
+            }
         }
 
-        // ── Validation CSV ───────────────────────────────────────────────────
-        if ("CSV".equalsIgnoreCase(type)) {
-            if (path == null || path.isBlank()) {
-                throw new IllegalStateException("Path is required for CSV source: " + name);
-            }
-            if (columns == null || columns.isEmpty()) {
-                throw new IllegalStateException("Columns configuration is required for CSV source: " + name);
-            }
-            validateColumns(false);
-        }
-
-        // ── Validation SQL ───────────────────────────────────────────────────
-        if ("SQL".equalsIgnoreCase(type)) {
-            if (sqlDirectory == null || sqlDirectory.isBlank()) {
-                throw new IllegalStateException("sqlDirectory is required for SQL source: " + name);
-            }
-            if (sqlFile == null || sqlFile.isBlank()) {
-                throw new IllegalStateException("sqlFile is required for SQL source: " + name);
-            }
-        }
-
-        // ── Validation REST ──────────────────────────────────────────────────
-        if ("REST".equalsIgnoreCase(type)) {
-            if (rest == null) {
-                throw new IllegalStateException("rest configuration is required for REST source: " + name);
-            }
-            rest.validate();
-            validateColumns(true);
-        }
-
-        // ── Validation SOAP ──────────────────────────────────────────────────
-        if ("SOAP".equalsIgnoreCase(type)) {
-            if (soap == null) {
-                throw new IllegalStateException("soap configuration is required for SOAP source: " + name);
-            }
-            soap.validate();
-            validateColumns(true);
-        }
-        
         if (chunkSize != null && chunkSize <= 0) {
             throw new IllegalStateException("Chunk size must be positive for source: " + name);
         }

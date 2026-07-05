@@ -108,23 +108,31 @@ public class StepConfig {
                 stepName + ".type is required (SQL or JAVA)");
         }
 
-        if ("SQL".equalsIgnoreCase(type)) {
-            if (sqlDirectory == null || sqlDirectory.isBlank()) {
-                throw new IllegalStateException(
-                    stepName + ".sqlDirectory is required when type=SQL");
-            }
-            if (sqlFile == null || sqlFile.isBlank()) {
-                throw new IllegalStateException(
-                    stepName + ".sqlFile is required when type=SQL");
-            }
-        } else if ("JAVA".equalsIgnoreCase(type)) {
-            if (beanName == null || beanName.isBlank()) {
-                throw new IllegalStateException(
-                    stepName + ".beanName is required when type=JAVA");
-            }
-        } else {
+        ExecutionType executionType;
+        try {
+            executionType = ExecutionType.from(type);
+        } catch (IllegalArgumentException e) {
             throw new IllegalStateException(
                 stepName + ".type is invalid: '" + type + "'. Accepted values: SQL, JAVA");
+        }
+
+        switch (executionType) {
+            case SQL -> {
+                if (sqlDirectory == null || sqlDirectory.isBlank()) {
+                    throw new IllegalStateException(
+                        stepName + ".sqlDirectory is required when type=SQL");
+                }
+                if (sqlFile == null || sqlFile.isBlank()) {
+                    throw new IllegalStateException(
+                        stepName + ".sqlFile is required when type=SQL");
+                }
+            }
+            case JAVA -> {
+                if (beanName == null || beanName.isBlank()) {
+                    throw new IllegalStateException(
+                        stepName + ".beanName is required when type=JAVA");
+                }
+            }
         }
     }
 }

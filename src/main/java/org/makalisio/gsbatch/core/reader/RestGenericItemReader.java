@@ -22,6 +22,7 @@ import com.jayway.jsonpath.Option;
 import lombok.extern.slf4j.Slf4j;
 import org.makalisio.gsbatch.core.model.ColumnConfig;
 import org.makalisio.gsbatch.core.model.GenericRecord;
+import org.makalisio.gsbatch.core.model.PaginationStrategy;
 import org.makalisio.gsbatch.core.model.RestConfig;
 import org.makalisio.gsbatch.core.model.SourceConfig;
 import org.makalisio.gsbatch.core.util.VariableResolver;
@@ -167,75 +168,75 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
     // ─────────────────────────────────────────────────────────────────────────
 
     private void fetchNextPage() {
-        String strategy = restConfig.getPagination().getStrategy().toUpperCase();
+        PaginationStrategy strategy = restConfig.getPagination().getPaginationStrategy();
 
-        if ("NONE".equals(strategy)) {
-            // Single call, no pagination
-            fetchPage(buildUrl(resolvedUrl, resolvedQueryParams));
-            currentPage++;
-            paginationDone = true;
-        }
-        else if ("PAGE_SIZE".equals(strategy)) {
-            Map<String, String> pageParams = new HashMap<>(resolvedQueryParams);
-            pageParams.put(restConfig.getPagination().getPageParam(), String.valueOf(currentPage));
-            pageParams.put(restConfig.getPagination().getSizeParam(),
-                    String.valueOf(restConfig.getPagination().getPageSize()));
-
-            String pageUrl = buildUrl(resolvedUrl, pageParams);
-            List<GenericRecord> items = fetchPage(pageUrl);
-
-            if (items.isEmpty()) {
-                log.debug("Page {} returned 0 items - end of pagination", currentPage);
-                paginationDone = true;
-            } else {
-                log.debug("Page {} fetched: {} items", currentPage, items.size());
+        switch (strategy) {
+            case NONE -> {
+                // Single call, no pagination
+                fetchPage(buildUrl(resolvedUrl, resolvedQueryParams));
                 currentPage++;
-            }
-        }
-        else if ("OFFSET_LIMIT".equals(strategy)) {
-            Map<String, String> pageParams = new HashMap<>(resolvedQueryParams);
-            pageParams.put(restConfig.getPagination().getOffsetParam(), String.valueOf(currentOffset));
-            pageParams.put(restConfig.getPagination().getLimitParam(),
-                    String.valueOf(restConfig.getPagination().getPageSize()));
-
-            String pageUrl = buildUrl(resolvedUrl, pageParams);
-            List<GenericRecord> items = fetchPage(pageUrl);
-
-            if (items.isEmpty()) {
-                log.debug("Offset {} returned 0 items - end of pagination", currentOffset);
-                paginationDone = true;
-            } else {
-                log.debug("Offset {} fetched: {} items", currentOffset, items.size());
-                currentOffset += items.size();
-            }
-        }
-        else if ("CURSOR".equals(strategy)) {
-            Map<String, String> pageParams = new HashMap<>(resolvedQueryParams);
-            if (currentCursor != null) {
-                pageParams.put(restConfig.getPagination().getCursorParam(), currentCursor);
-            }
-
-            String pageUrl = buildUrl(resolvedUrl, pageParams);
-            List<GenericRecord> items = fetchPage(pageUrl);
-            // fetchPage() has already updated currentCursor to the next cursor
-            // extracted from this response (or null if the API signaled no more pages).
-
-            if (items.isEmpty()) {
-                log.debug("Cursor returned 0 items, next cursor: '{}'", currentCursor);
-            } else {
-                log.debug("Cursor fetched: {} items, next cursor: '{}'", items.size(), currentCursor);
-            }
-
-            // Termination must be driven by cursor presence, not by this page's item
-            // count: a filtered/rate-limited page can legitimately return 0 items while
-            // still carrying a valid next cursor, and a page with items can be the last
-            // one if the API returns no next cursor for it.
-            if (currentCursor == null) {
                 paginationDone = true;
             }
-        }
-        else {
-            throw new UnsupportedOperationException(
+            case PAGE_SIZE -> {
+                Map<String, String> pageParams = new HashMap<>(resolvedQueryParams);
+                pageParams.put(restConfig.getPagination().getPageParam(), String.valueOf(currentPage));
+                pageParams.put(restConfig.getPagination().getSizeParam(),
+                        String.valueOf(restConfig.getPagination().getPageSize()));
+
+                String pageUrl = buildUrl(resolvedUrl, pageParams);
+                List<GenericRecord> items = fetchPage(pageUrl);
+
+                if (items.isEmpty()) {
+                    log.debug("Page {} returned 0 items - end of pagination", currentPage);
+                    paginationDone = true;
+                } else {
+                    log.debug("Page {} fetched: {} items", currentPage, items.size());
+                    currentPage++;
+                }
+            }
+            case OFFSET_LIMIT -> {
+                Map<String, String> pageParams = new HashMap<>(resolvedQueryParams);
+                pageParams.put(restConfig.getPagination().getOffsetParam(), String.valueOf(currentOffset));
+                pageParams.put(restConfig.getPagination().getLimitParam(),
+                        String.valueOf(restConfig.getPagination().getPageSize()));
+
+                String pageUrl = buildUrl(resolvedUrl, pageParams);
+                List<GenericRecord> items = fetchPage(pageUrl);
+
+                if (items.isEmpty()) {
+                    log.debug("Offset {} returned 0 items - end of pagination", currentOffset);
+                    paginationDone = true;
+                } else {
+                    log.debug("Offset {} fetched: {} items", currentOffset, items.size());
+                    currentOffset += items.size();
+                }
+            }
+            case CURSOR -> {
+                Map<String, String> pageParams = new HashMap<>(resolvedQueryParams);
+                if (currentCursor != null) {
+                    pageParams.put(restConfig.getPagination().getCursorParam(), currentCursor);
+                }
+
+                String pageUrl = buildUrl(resolvedUrl, pageParams);
+                List<GenericRecord> items = fetchPage(pageUrl);
+                // fetchPage() has already updated currentCursor to the next cursor
+                // extracted from this response (or null if the API signaled no more pages).
+
+                if (items.isEmpty()) {
+                    log.debug("Cursor returned 0 items, next cursor: '{}'", currentCursor);
+                } else {
+                    log.debug("Cursor fetched: {} items, next cursor: '{}'", items.size(), currentCursor);
+                }
+
+                // Termination must be driven by cursor presence, not by this page's item
+                // count: a filtered/rate-limited page can legitimately return 0 items while
+                // still carrying a valid next cursor, and a page with items can be the last
+                // one if the API returns no next cursor for it.
+                if (currentCursor == null) {
+                    paginationDone = true;
+                }
+            }
+            case LINK_HEADER -> throw new UnsupportedOperationException(
                     "Pagination strategy not yet implemented: " + strategy);
         }
     }

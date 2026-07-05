@@ -18,6 +18,7 @@ package org.makalisio.gsbatch.core.reader;
 import lombok.extern.slf4j.Slf4j;
 import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.SourceConfig;
+import org.makalisio.gsbatch.core.model.SourceType;
 import org.springframework.batch.item.ItemStreamReader;
 import java.util.Map;
 import org.springframework.stereotype.Component;
@@ -77,36 +78,30 @@ public class GenericItemReaderFactory {
 
         log.debug("Building reader for source '{}' of type: {}", config.getName(), type);
 
-        switch (type.toUpperCase()) {
-            case "CSV":
-                return csvReaderBuilder.build(config);  // CSV does not use jobParameters
-            
-            case "SQL":
-                return sqlReaderBuilder.build(config, jobParameters);
-            
-            case "REST":
-                return restReaderBuilder.build(config, jobParameters);
-            
-            case "SOAP":
-                return soapReaderBuilder.build(config, jobParameters);
-            
-            case "JSON":
-                throw new UnsupportedOperationException(
-                    "JSON reader not yet implemented for source: " + config.getName()
-                );
-            
-            case "XML":
-                throw new UnsupportedOperationException(
-                    "XML reader not yet implemented for source: " + config.getName()
-                );
-            
-            default:
-                String errorMsg = String.format(
+        SourceType sourceType;
+        try {
+            sourceType = SourceType.from(type);
+        } catch (IllegalArgumentException e) {
+            String errorMsg = String.format(
                     "Unsupported source type '%s' for source: %s. Supported types: CSV, SQL, REST, SOAP",
                     type, config.getName()
-                );
-                log.error(errorMsg);
-                throw new IllegalArgumentException(errorMsg);
+            );
+            log.error(errorMsg);
+            throw new IllegalArgumentException(errorMsg);
         }
+
+        if (!sourceType.isImplemented()) {
+            throw new UnsupportedOperationException(
+                    sourceType + " reader not yet implemented for source: " + config.getName()
+            );
+        }
+
+        return switch (sourceType) {
+            case CSV -> csvReaderBuilder.build(config);  // CSV does not use jobParameters
+            case SQL -> sqlReaderBuilder.build(config, jobParameters);
+            case REST -> restReaderBuilder.build(config, jobParameters);
+            case SOAP -> soapReaderBuilder.build(config, jobParameters);
+            case JSON, XML -> throw new IllegalStateException("unreachable: checked isImplemented() above");
+        };
     }
 }

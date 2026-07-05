@@ -17,6 +17,7 @@ package org.makalisio.gsbatch.core.reader;
 
 import lombok.extern.slf4j.Slf4j;
 import org.makalisio.gsbatch.core.model.GenericRecord;
+import org.makalisio.gsbatch.core.model.RestAuthType;
 import org.makalisio.gsbatch.core.model.RestConfig;
 import org.makalisio.gsbatch.core.model.SourceConfig;
 import org.makalisio.gsbatch.core.util.VariableResolver;
@@ -100,36 +101,33 @@ public class RestGenericItemReaderBuilder {
                 .setReadTimeout(Duration.ofSeconds(60));
 
         // Add authentication interceptor if configured
-        String authType = restConfig.getAuth().getType().toUpperCase();
+        RestAuthType authType = restConfig.getAuth().getAuthType();
 
-        if ("API_KEY".equals(authType)) {
-            String apiKey = VariableResolver.resolveEnvVariables(restConfig.getAuth().getApiKey(), "rest.auth.apiKey");
-            String headerName = restConfig.getAuth().getHeaderName();
+        switch (authType) {
+            case API_KEY -> {
+                String apiKey = VariableResolver.resolveEnvVariables(restConfig.getAuth().getApiKey(), "rest.auth.apiKey");
+                String headerName = restConfig.getAuth().getHeaderName();
 
-            log.debug("Source '{}' - API_KEY auth configured (header: {})", sourceName, headerName);
+                log.debug("Source '{}' - API_KEY auth configured (header: {})", sourceName, headerName);
 
-            builder = builder.interceptors((ClientHttpRequestInterceptor) (request, body, execution) -> {
-                request.getHeaders().set(headerName, apiKey);
-                return execution.execute(request, body);
-            });
-        }
-        else if ("BEARER".equals(authType)) {
-            String token = VariableResolver.resolveEnvVariables(restConfig.getAuth().getBearerToken(), "rest.auth.bearerToken");
+                builder = builder.interceptors((ClientHttpRequestInterceptor) (request, body, execution) -> {
+                    request.getHeaders().set(headerName, apiKey);
+                    return execution.execute(request, body);
+                });
+            }
+            case BEARER -> {
+                String token = VariableResolver.resolveEnvVariables(restConfig.getAuth().getBearerToken(), "rest.auth.bearerToken");
 
-            log.debug("Source '{}' - BEARER auth configured", sourceName);
+                log.debug("Source '{}' - BEARER auth configured", sourceName);
 
-            builder = builder.interceptors((ClientHttpRequestInterceptor) (request, body, execution) -> {
-                request.getHeaders().setBearerAuth(token);
-                return execution.execute(request, body);
-            });
-        }
-        else if ("OAUTH2_CLIENT_CREDENTIALS".equals(authType)) {
-            throw new UnsupportedOperationException(
+                builder = builder.interceptors((ClientHttpRequestInterceptor) (request, body, execution) -> {
+                    request.getHeaders().setBearerAuth(token);
+                    return execution.execute(request, body);
+                });
+            }
+            case OAUTH2_CLIENT_CREDENTIALS -> throw new UnsupportedOperationException(
                     "OAUTH2_CLIENT_CREDENTIALS not yet implemented. Use API_KEY or BEARER for now.");
-        }
-        else if (!"NONE".equals(authType)) {
-            throw new IllegalStateException(
-                    "Unknown auth type for source '" + sourceName + "': " + authType);
+            case NONE -> { /* no authentication */ }
         }
 
         return builder.build();

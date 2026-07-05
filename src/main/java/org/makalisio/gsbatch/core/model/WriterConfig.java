@@ -119,33 +119,45 @@ public class WriterConfig {
     }
 
     /**
+     * Parses {@link #getType()} into an {@link ExecutionType}.
+     *
+     * @throws IllegalStateException if the value is null, blank, or unrecognized
+     */
+    public ExecutionType getExecutionType() {
+        if (type == null || type.isBlank()) {
+            throw new IllegalStateException("writer.type is required (SQL or JAVA)");
+        }
+        try {
+            return ExecutionType.from(type);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(
+                    "writer.type is invalid: '" + type + "'. Accepted values: SQL, JAVA");
+        }
+    }
+
+    /**
      * Validates the writer configuration.
      *
      * @throws IllegalStateException if the configuration is invalid
      */
     public void validate() {
-        if (type == null || type.isBlank()) {
-            throw new IllegalStateException(
-                "writer.type is required (SQL or JAVA)");
-        }
-
-        if ("SQL".equalsIgnoreCase(type)) {
-            if (sqlDirectory == null || sqlDirectory.isBlank()) {
-                throw new IllegalStateException(
-                    "writer.sqlDirectory is required when type=SQL");
+        switch (getExecutionType()) {
+            case SQL -> {
+                if (sqlDirectory == null || sqlDirectory.isBlank()) {
+                    throw new IllegalStateException(
+                        "writer.sqlDirectory is required when type=SQL");
+                }
+                if (sqlFile == null || sqlFile.isBlank()) {
+                    throw new IllegalStateException(
+                        "writer.sqlFile is required when type=SQL");
+                }
             }
-            if (sqlFile == null || sqlFile.isBlank()) {
-                throw new IllegalStateException(
-                    "writer.sqlFile is required when type=SQL");
+            case JAVA -> {
+                if (beanName == null || beanName.isBlank()) {
+                    throw new IllegalStateException(
+                        "writer.beanName is required when type=JAVA");
+                }
             }
-        } else if ("JAVA".equalsIgnoreCase(type)) {
-            if (beanName == null || beanName.isBlank()) {
-                throw new IllegalStateException(
-                    "writer.beanName is required when type=JAVA");
-            }
-        } else {
-            throw new IllegalStateException(
-                "writer.type is invalid: '" + type + "'. Accepted values: SQL, JAVA");
         }
 
         if (!"FAIL".equalsIgnoreCase(onError) && !"SKIP".equalsIgnoreCase(onError)) {
