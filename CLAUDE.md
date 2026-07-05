@@ -21,7 +21,7 @@ mvn clean verify -P coverage
 mvn install -P prod
 ```
 
-The test suite lives in `src/test/` — 168 tests, 0 failures. Stack: JUnit 5 + Mockito 5 + AssertJ (pure unit tests, no Spring context). `@SpringBatchTest` + H2 is reserved for future integration tests covering `GenericIngestionJobConfig`.
+The test suite lives in `src/test/` — 199 tests, 0 failures. Stack: JUnit 5 + Mockito 5 + AssertJ (pure unit tests, no Spring context). `@SpringBatchTest` + H2 is reserved for future integration tests covering `GenericIngestionJobConfig`.
 
 ## Architecture Overview
 

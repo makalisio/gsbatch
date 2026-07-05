@@ -116,6 +116,12 @@ public class SoapGenericItemReaderBuilder {
 
         @Override
         public String call(String soapRequest) throws Exception {
+            // WS-Security travels inside the SOAP envelope itself, so the
+            // UsernameToken must be injected before the request is sent
+            if ("WS_SECURITY".equals(config.getAuth().getType().toUpperCase())) {
+                soapRequest = injectWsSecurity(soapRequest);
+            }
+
             // Build HTTP headers
             HttpHeaders headers = buildHeaders(soapRequest);
 
@@ -194,12 +200,8 @@ public class SoapGenericItemReaderBuilder {
                     break;
 
                 case "WS_SECURITY":
-                    // WS-Security is embedded in SOAP envelope - already done in request template
-                    // But if username/password are in config, inject them
-                    // This is handled by modifying the SOAP request before sending
-                    // For now, we assume the template already has WS-Security header
-                    log.debug("Source '{}' - WS-Security: UsernameToken should be in request template", 
-                              sourceName);
+                    // Already handled in call(): the UsernameToken is injected into
+                    // the SOAP envelope itself, not into HTTP headers
                     break;
 
                 case "CUSTOM_HEADER":
@@ -209,6 +211,19 @@ public class SoapGenericItemReaderBuilder {
                 default:
                     throw new IllegalStateException("Unknown auth type: " + authType);
             }
+        }
+
+        private String injectWsSecurity(String soapRequest) {
+            String username = VariableResolver.resolveEnvVariables(config.getAuth().getUsername(),
+                                                "soap.auth.username");
+            String password = VariableResolver.resolveEnvVariables(config.getAuth().getPassword(),
+                                                "soap.auth.password");
+
+            log.debug("Source '{}' - injecting WS-Security UsernameToken ({})",
+                      sourceName, config.getAuth().getPasswordType());
+
+            return WsSecurityHeaderInjector.inject(soapRequest, username, password,
+                                                   config.getAuth().getPasswordType());
         }
 
         private void applyBasicAuth(HttpHeaders headers) {

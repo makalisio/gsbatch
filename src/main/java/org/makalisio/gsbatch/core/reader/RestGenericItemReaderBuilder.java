@@ -22,10 +22,7 @@ import org.makalisio.gsbatch.core.model.SourceConfig;
 import org.makalisio.gsbatch.core.util.VariableResolver;
 import org.springframework.batch.item.ItemStreamReader;
 import org.springframework.boot.web.client.RestTemplateBuilder;
-import org.springframework.http.HttpRequest;
-import org.springframework.http.client.ClientHttpRequestExecution;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
-import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.retry.backoff.FixedBackOffPolicy;
 import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
@@ -33,7 +30,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 
-import java.io.IOException;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
@@ -143,7 +139,7 @@ public class RestGenericItemReaderBuilder {
     //  RetryTemplate configuration
     // ─────────────────────────────────────────────────────────────────────────
 
-    private RetryTemplate buildRetryTemplate(RestConfig restConfig, String sourceName) {
+    RetryTemplate buildRetryTemplate(RestConfig restConfig, String sourceName) {
         RestConfig.RetryConfig retryConfig = restConfig.getRetry();
 
         if (retryConfig.getMaxRetries() == 0) {
@@ -169,6 +165,13 @@ public class RestGenericItemReaderBuilder {
             @Override
             public boolean canRetry(org.springframework.retry.RetryContext context) {
                 Throwable lastThrowable = context.getLastThrowable();
+
+                // Spring Retry consults canRetry() BEFORE the first attempt, with no
+                // throwable registered yet. Returning false here would prevent the
+                // initial HTTP call from ever executing.
+                if (lastThrowable == null) {
+                    return super.canRetry(context);
+                }
 
                 if (lastThrowable instanceof HttpStatusCodeException) {
                     int statusCode = ((HttpStatusCodeException) lastThrowable).getStatusCode().value();
