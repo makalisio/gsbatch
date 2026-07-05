@@ -93,10 +93,18 @@ public class SoapGenericItemReaderBuilder {
 
         RestTemplate restTemplate = new RestTemplate(requestFactory);
 
-        log.debug("Source '{}' - SOAP client configured (connectTimeout={}ms, readTimeout={}ms)", 
+        log.debug("Source '{}' - SOAP client configured (connectTimeout={}ms, readTimeout={}ms)",
                   sourceName, config.getConnectionTimeout(), config.getReadTimeout());
 
-        // Return SOAP client implementation
+        return buildSoapClient(restTemplate, config, sourceName);
+    }
+
+    /**
+     * Package-private overload accepting the {@link RestTemplate} directly, so
+     * tests can bind it to {@code MockRestServiceServer} instead of exercising
+     * real HTTP.
+     */
+    SoapGenericItemReader.SoapClient buildSoapClient(RestTemplate restTemplate, SoapConfig config, String sourceName) {
         return new SoapClientImpl(restTemplate, config, sourceName);
     }
 

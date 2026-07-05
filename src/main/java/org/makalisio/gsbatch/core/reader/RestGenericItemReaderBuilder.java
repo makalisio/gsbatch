@@ -95,7 +95,7 @@ public class RestGenericItemReaderBuilder {
     //  RestTemplate configuration
     // ─────────────────────────────────────────────────────────────────────────
 
-    private RestTemplate buildRestTemplate(RestConfig restConfig, String sourceName) {
+    RestTemplate buildRestTemplate(RestConfig restConfig, String sourceName) {
         RestTemplateBuilder builder = new RestTemplateBuilder()
                 .setConnectTimeout(Duration.ofSeconds(30))
                 .setReadTimeout(Duration.ofSeconds(60));

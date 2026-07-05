@@ -20,12 +20,16 @@ import org.junit.jupiter.api.Test;
 import org.makalisio.gsbatch.core.model.RestConfig;
 import org.springframework.http.HttpStatus;
 import org.springframework.retry.support.RetryTemplate;
+import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
+import org.springframework.web.client.RestTemplate;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.*;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 
 class RestGenericItemReaderBuilderTest {
 
@@ -128,6 +132,85 @@ class RestGenericItemReaderBuilderTest {
                 .hasMessage("boom");
 
         assertThat(attempts).hasValue(1);
+    }
+
+    // ── Authentication dispatch ──────────────────────────────────────────────
+
+    @Test
+    void buildRestTemplate_apiKeyAuth_addsHeaderToRequest() {
+        RestConfig config = new RestConfig();
+        config.setUrl("https://api.example.com/x");
+        config.getAuth().setType("API_KEY");
+        config.getAuth().setApiKey("secret123");
+        config.getAuth().setHeaderName("X-Api-Key");
+
+        RestTemplate restTemplate = builder.buildRestTemplate(config, "test");
+        MockRestServiceServer server = MockRestServiceServer.createServer(restTemplate);
+        server.expect(requestTo("https://api.example.com/x"))
+                .andExpect(header("X-Api-Key", "secret123"))
+                .andRespond(withSuccess());
+
+        restTemplate.getForEntity("https://api.example.com/x", String.class);
+
+        server.verify();
+    }
+
+    @Test
+    void buildRestTemplate_bearerAuth_addsAuthorizationHeader() {
+        RestConfig config = new RestConfig();
+        config.setUrl("https://api.example.com/x");
+        config.getAuth().setType("BEARER");
+        config.getAuth().setBearerToken("token-abc");
+
+        RestTemplate restTemplate = builder.buildRestTemplate(config, "test");
+        MockRestServiceServer server = MockRestServiceServer.createServer(restTemplate);
+        server.expect(requestTo("https://api.example.com/x"))
+                .andExpect(header("Authorization", "Bearer token-abc"))
+                .andRespond(withSuccess());
+
+        restTemplate.getForEntity("https://api.example.com/x", String.class);
+
+        server.verify();
+    }
+
+    @Test
+    void buildRestTemplate_noneAuth_addsNoAuthHeader() {
+        RestConfig config = new RestConfig();
+        config.setUrl("https://api.example.com/x");
+        // auth.type defaults to NONE
+
+        RestTemplate restTemplate = builder.buildRestTemplate(config, "test");
+        MockRestServiceServer server = MockRestServiceServer.createServer(restTemplate);
+        server.expect(requestTo("https://api.example.com/x"))
+                .andExpect(headerDoesNotExist("Authorization"))
+                .andExpect(headerDoesNotExist("X-Api-Key"))
+                .andRespond(withSuccess());
+
+        restTemplate.getForEntity("https://api.example.com/x", String.class);
+
+        server.verify();
+    }
+
+    @Test
+    void buildRestTemplate_oauth2ClientCredentials_throwsUnsupportedOperation() {
+        RestConfig config = new RestConfig();
+        config.setUrl("https://api.example.com/x");
+        config.getAuth().setType("OAUTH2_CLIENT_CREDENTIALS");
+
+        assertThatThrownBy(() -> builder.buildRestTemplate(config, "test"))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("OAUTH2_CLIENT_CREDENTIALS");
+    }
+
+    @Test
+    void buildRestTemplate_unknownAuthType_throwsIllegalState() {
+        RestConfig config = new RestConfig();
+        config.setUrl("https://api.example.com/x");
+        config.getAuth().setType("HMAC");
+
+        assertThatThrownBy(() -> builder.buildRestTemplate(config, "test"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HMAC");
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
