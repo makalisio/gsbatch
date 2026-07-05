@@ -17,12 +17,15 @@ package org.makalisio.gsbatch.core.reader;
 
 import lombok.extern.slf4j.Slf4j;
 import org.makalisio.gsbatch.core.model.SourceConfig;
+import org.makalisio.gsbatch.core.util.VariableResolver;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterUtils;
 import org.springframework.jdbc.core.namedparam.ParsedSql;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -35,7 +38,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Loads and prepares SQL queries from external files.
@@ -82,18 +84,10 @@ import java.util.regex.Pattern;
 public class SqlFileLoader {
 
     /**
-     * Regex to extract bind parameters of the form {@code :paramName}.
-     *
-     * <p>{@code ParsedSql.getParameterNames()} is package-private in Spring
-     * and cannot be called from outside the
-     * {@code org.springframework.jdbc.core.namedparam} package. Parameter names
-     * are therefore extracted directly from the raw SQL via this regex.</p>
-     *
-     * <p>The regex ignores {@code ::} (PostgreSQL cast operator) and requires
-     * the name to start with a letter.</p>
+     * Prefix that marks a {@code sqlDirectory} as a classpath location rather
+     * than a filesystem path (e.g. {@code classpath:sql}).
      */
-    private static final Pattern BIND_PARAM_PATTERN =
-            Pattern.compile("(?<![:])(:[a-zA-Z][a-zA-Z0-9_]*)");
+    private static final String CLASSPATH_PREFIX = "classpath:";
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Public API
@@ -152,10 +146,9 @@ public class SqlFileLoader {
     public LoadedSql load(SourceConfig config, Map<String, Object> jobParameters) {
 
         // ── 1. Locate and read the SQL file ──────────────────────────────────
-        Path sqlPath = resolvePath(config);
-        String rawSql = readFile(sqlPath, config);
+        String rawSql = loadSqlContent(config.getSqlDirectory(), config.getSqlFile());
 
-        log.debug("Source '{}'  - raw SQL loaded from {} :\n{}", config.getName(), sqlPath, rawSql);
+        log.debug("Source '{}'  - raw SQL loaded:\n{}", config.getName(), rawSql);
 
         // ── 2. Parse :paramName variables ────────────────────────────────────
         // Extracted via regex because ParsedSql.getParameterNames() is package-private
@@ -198,8 +191,7 @@ public class SqlFileLoader {
      */
     public List<LoadedSql> loadStatements(String sqlDirectory, String sqlFile,
                                           Map<String, Object> parameters) {
-        Path path = Paths.get(sqlDirectory, sqlFile);
-        String rawContent = readFileContent(path, sqlDirectory, sqlFile);
+        String rawContent = loadSqlContent(sqlDirectory, sqlFile);
 
         // Split by ";" at end of statement (ignores ";" inside strings)
         String[] rawStatements = rawContent.split(";\s*(?=\n|\r|$)");
@@ -239,8 +231,7 @@ public class SqlFileLoader {
      * @throws SqlFileException if the file is not found or unreadable
      */
     public String readRawSql(String sqlDirectory, String sqlFile) {
-        Path path = Paths.get(sqlDirectory, sqlFile);
-        return readFileContent(path, sqlDirectory, sqlFile);
+        return loadSqlContent(sqlDirectory, sqlFile);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -248,19 +239,45 @@ public class SqlFileLoader {
     // ─────────────────────────────────────────────────────────────────────────
 
     /**
-     * Resolves the absolute path of the SQL file.
+     * Loads the raw SQL file content, resolving {@code sqlDirectory} in the
+     * documented order: a {@code classpath:} prefix is loaded via the classpath,
+     * anything else is resolved as a filesystem path (absolute or relative to
+     * the working directory, per {@link Paths#get(String, String...)} semantics).
      */
-    private Path resolvePath(SourceConfig config) {
-        Path path = Paths.get(config.getSqlDirectory(), config.getSqlFile());
-        log.debug("Source '{}'  - resolved SQL path: {}", config.getName(), path.toAbsolutePath());
-        return path;
+    private String loadSqlContent(String sqlDirectory, String sqlFile) {
+        if (sqlDirectory != null && sqlDirectory.startsWith(CLASSPATH_PREFIX)) {
+            return readClasspathFile(sqlDirectory, sqlFile);
+        }
+
+        Path path = Paths.get(sqlDirectory, sqlFile);
+        log.debug("Resolved SQL path: {}", path.toAbsolutePath());
+        return readFileContent(path, sqlDirectory, sqlFile);
     }
 
     /**
-     * Reads the SQL file content in UTF-8 (delegates to the generic method).
+     * Reads and cleans a SQL file located on the classpath (e.g. {@code sqlDirectory: classpath:sql}).
      */
-    private String readFile(Path path, SourceConfig config) {
-        return readFileContent(path, config.getSqlDirectory(), config.getSqlFile());
+    private String readClasspathFile(String sqlDirectory, String sqlFile) {
+        String classpathDir = sqlDirectory.substring(CLASSPATH_PREFIX.length());
+        String resourcePath = classpathDir.isBlank() ? sqlFile : classpathDir + "/" + sqlFile;
+        ClassPathResource resource = new ClassPathResource(resourcePath);
+
+        if (!resource.exists()) {
+            throw new SqlFileException(String.format(
+                    "SQL file not found on classpath: %s%n" +
+                            "Check sqlDirectory='%s' and sqlFile='%s'.",
+                    resourcePath, sqlDirectory, sqlFile
+            ));
+        }
+
+        try (InputStream is = resource.getInputStream()) {
+            String fileContent = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            fileContent = cleanSqlContent(fileContent, "classpath:" + resourcePath);
+            log.info("SQL file loaded from classpath: {} ({} characters)", resourcePath, fileContent.length());
+            return fileContent;
+        } catch (IOException e) {
+            throw new SqlFileException("Unable to read SQL file from classpath: " + resourcePath, e);
+        }
     }
 
     /**
@@ -289,16 +306,23 @@ public class SqlFileLoader {
 
         try {
             String fileContent = Files.readString(path, StandardCharsets.UTF_8);
-            fileContent = fileContent.replaceAll("--[^\n]*", "").trim();
-            if (fileContent.isBlank()) {
-                throw new SqlFileException(
-                        "SQL file is empty or contains only comments: " + path);
-            }
+            fileContent = cleanSqlContent(fileContent, path.toString());
             log.info("SQL file loaded: {} ({} characters)", path.getFileName(), fileContent.length());
             return fileContent;
         } catch (IOException e) {
             throw new SqlFileException("Unable to read SQL file: " + path, e);
         }
+    }
+
+    /**
+     * Strips {@code -- ...} end-of-line comments and validates the remaining content is non-blank.
+     */
+    private String cleanSqlContent(String fileContent, String source) {
+        String cleaned = fileContent.replaceAll("--[^\n]*", "").trim();
+        if (cleaned.isBlank()) {
+            throw new SqlFileException("SQL file is empty or contains only comments: " + source);
+        }
+        return cleaned;
     }
 
     /**
@@ -313,9 +337,12 @@ public class SqlFileLoader {
      * @return ordered and deduplicated list of parameter names
      */
     private List<String> extractParamNames(String sql) {
+        // ParsedSql.getParameterNames() is package-private in Spring and cannot be
+        // called from outside org.springframework.jdbc.core.namedparam, so parameter
+        // names are extracted directly from the raw SQL via this regex instead.
         // LinkedHashSet: deduplicates while preserving insertion order
         LinkedHashSet<String> names = new LinkedHashSet<>();
-        Matcher matcher = BIND_PARAM_PATTERN.matcher(sql);
+        Matcher matcher = VariableResolver.BIND_PARAM_PATTERN.matcher(sql);
         while (matcher.find()) {
             // matcher.group(1) contains ":paramName", we strip the ":"
             names.add(matcher.group(1).substring(1));

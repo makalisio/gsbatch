@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.RestConfig;
 import org.makalisio.gsbatch.core.model.SourceConfig;
+import org.makalisio.gsbatch.core.util.VariableResolver;
 import org.springframework.batch.item.ItemStreamReader;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpRequest;
@@ -36,8 +37,6 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Builder for {@link RestGenericItemReader}.
@@ -56,8 +55,6 @@ import java.util.regex.Pattern;
 @Slf4j
 @Component
 public class RestGenericItemReaderBuilder {
-
-    private static final Pattern ENV_VAR_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
 
     public RestGenericItemReaderBuilder() {
         log.info("RestGenericItemReaderBuilder initialized");
@@ -110,7 +107,7 @@ public class RestGenericItemReaderBuilder {
         String authType = restConfig.getAuth().getType().toUpperCase();
 
         if ("API_KEY".equals(authType)) {
-            String apiKey = resolveEnvVars(restConfig.getAuth().getApiKey(), "rest.auth.apiKey");
+            String apiKey = VariableResolver.resolveEnvVariables(restConfig.getAuth().getApiKey(), "rest.auth.apiKey");
             String headerName = restConfig.getAuth().getHeaderName();
 
             log.debug("Source '{}' - API_KEY auth configured (header: {})", sourceName, headerName);
@@ -121,7 +118,7 @@ public class RestGenericItemReaderBuilder {
             });
         }
         else if ("BEARER".equals(authType)) {
-            String token = resolveEnvVars(restConfig.getAuth().getBearerToken(), "rest.auth.bearerToken");
+            String token = VariableResolver.resolveEnvVariables(restConfig.getAuth().getBearerToken(), "rest.auth.bearerToken");
 
             log.debug("Source '{}' - BEARER auth configured", sourceName);
 
@@ -198,47 +195,5 @@ public class RestGenericItemReaderBuilder {
         retryTemplate.setBackOffPolicy(backOffPolicy);
 
         return retryTemplate;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Environment variable resolution
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * Resolves environment variables in the format ${VAR_NAME}.
-     *
-     * @param input   string that may contain ${VAR} placeholders
-     * @param context context for error messages (e.g., "rest.auth.apiKey")
-     * @return resolved string with env vars substituted
-     * @throws IllegalStateException if an environment variable is not found
-     */
-    private String resolveEnvVars(String input, String context) {
-        if (input == null || input.isBlank()) {
-            return input;
-        }
-
-        Matcher matcher = ENV_VAR_PATTERN.matcher(input);
-        StringBuffer sb = new StringBuffer();
-
-        while (matcher.find()) {
-            String varName = matcher.group(1);
-            String envValue = System.getenv(varName);
-
-            if (envValue == null) {
-                throw new IllegalStateException(String.format(
-                        "Environment variable not found [%s]: ${%s}%n" +
-                                "Set it before running the job:%n" +
-                                "  export %s=<value>  # Linux/Mac%n" +
-                                "  set %s=<value>     # Windows CMD%n" +
-                                "  $env:%s='<value>'  # Windows PowerShell",
-                        context, varName, varName, varName, varName
-                ));
-            }
-
-            matcher.appendReplacement(sb, Matcher.quoteReplacement(envValue));
-        }
-
-        matcher.appendTail(sb);
-        return sb.toString();
     }
 }

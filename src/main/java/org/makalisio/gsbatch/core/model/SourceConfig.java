@@ -220,14 +220,7 @@ public class SourceConfig {
             if (columns == null || columns.isEmpty()) {
                 throw new IllegalStateException("Columns configuration is required for CSV source: " + name);
             }
-            for (int i = 0; i < columns.size(); i++) {
-                ColumnConfig col = columns.get(i);
-                if (col.getName() == null || col.getName().isBlank()) {
-                    throw new IllegalStateException(
-                        String.format("Column name is required at index %d for source: %s", i, name)
-                    );
-                }
-            }
+            validateColumns(false);
         }
 
         // ── Validation SQL ───────────────────────────────────────────────────
@@ -246,6 +239,7 @@ public class SourceConfig {
                 throw new IllegalStateException("rest configuration is required for REST source: " + name);
             }
             rest.validate();
+            validateColumns(true);
         }
 
         // ── Validation SOAP ──────────────────────────────────────────────────
@@ -254,6 +248,7 @@ public class SourceConfig {
                 throw new IllegalStateException("soap configuration is required for SOAP source: " + name);
             }
             soap.validate();
+            validateColumns(true);
         }
         
         if (chunkSize != null && chunkSize <= 0) {
@@ -271,6 +266,34 @@ public class SourceConfig {
         // ── Validation writer declaratif ─────────────────────────────────────
         if (writer != null) {
             writer.validate();
+        }
+    }
+
+    /**
+     * Validates each declared column (name, and type when {@code requireType}
+     * is set). REST/SOAP readers convert values based on {@code column.type},
+     * so a missing type there would otherwise surface as an NPE at read time
+     * instead of a clear configuration error at startup.
+     *
+     * @param requireType whether column type is mandatory for this source type
+     */
+    private void validateColumns(boolean requireType) {
+        if (columns == null) {
+            return;
+        }
+        for (int i = 0; i < columns.size(); i++) {
+            ColumnConfig col = columns.get(i);
+            try {
+                col.validate();
+            } catch (IllegalStateException e) {
+                throw new IllegalStateException(
+                        String.format("%s at index %d for source: %s", e.getMessage(), i, name));
+            }
+            if (requireType && (col.getType() == null || col.getType().isBlank())) {
+                throw new IllegalStateException(
+                        String.format("Column type is required for column '%s' (index %d) for source: %s",
+                                col.getName(), i, name));
+            }
         }
     }
 }

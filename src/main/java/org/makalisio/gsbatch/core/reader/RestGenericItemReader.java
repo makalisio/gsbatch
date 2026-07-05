@@ -24,6 +24,7 @@ import org.makalisio.gsbatch.core.model.ColumnConfig;
 import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.RestConfig;
 import org.makalisio.gsbatch.core.model.SourceConfig;
+import org.makalisio.gsbatch.core.util.VariableResolver;
 import org.springframework.batch.item.ItemStreamReader;
 import org.springframework.http.*;
 import org.springframework.retry.RetryPolicy;
@@ -38,8 +39,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * REST API ItemReader with pagination, retry, and JSON extraction.
@@ -60,8 +59,6 @@ import java.util.regex.Pattern;
 @Slf4j
 public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
 
-    private static final Pattern BIND_PARAM_PATTERN = Pattern.compile("(?<![:])(:[a-zA-Z][a-zA-Z0-9_]*)");
-    private static final Pattern ENV_VAR_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final SourceConfig sourceConfig;
@@ -75,6 +72,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
     private int currentPage = 0;
     private int currentOffset = 0;
     private String currentCursor = null;
+    private boolean paginationDone = false;
     private Integer totalItems = null;
     private int itemsRead = 0;
 
@@ -85,6 +83,10 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
     private String resolvedUrl;
     private Map<String, String> resolvedQueryParams;
     private HttpHeaders resolvedHeaders;
+    private String resolvedBody;
+
+    // Cache of compiled DateTimeFormatters, keyed by column format pattern
+    private final Map<String, DateTimeFormatter> dateFormatters = new HashMap<>();
 
     /**
      * @param sourceConfig    source configuration from YAML
@@ -120,15 +122,17 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
     public void open(org.springframework.batch.item.ExecutionContext executionContext) {
         log.info("Opening REST reader for source '{}'", sourceConfig.getName());
 
-        // Resolve URL, query params, and headers once
+        // Resolve URL, query params, headers, and body once
         resolvedUrl = resolveVariables(restConfig.getUrl(), "rest.url");
         resolvedQueryParams = resolveQueryParams();
         resolvedHeaders = buildHeaders();
+        resolvedBody = resolveVariables(restConfig.getBody(), "rest.body");
 
         // Reset pagination state
         currentPage = 0;
         currentOffset = 0;
         currentCursor = null;
+        paginationDone = false;
         itemsRead = 0;
         buffer.clear();
 
@@ -138,8 +142,11 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
 
     @Override
     public GenericRecord read() throws Exception {
-        // If buffer is empty, fetch next page
-        if (buffer.isEmpty()) {
+        // Keep fetching pages while the buffer is empty and more pages may exist.
+        // A page can legitimately come back empty (e.g. a filtered CURSOR page)
+        // while still carrying a valid next cursor, so a single fetch attempt
+        // is not enough to decide there is no more data.
+        while (buffer.isEmpty() && !paginationDone) {
             fetchNextPage();
         }
 
@@ -168,11 +175,9 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
 
         if ("NONE".equals(strategy)) {
             // Single call, no pagination
-            if (currentPage > 0) {
-                return;  // Already fetched, no more pages
-            }
             fetchPage(buildUrl(resolvedUrl, resolvedQueryParams));
             currentPage++;
+            paginationDone = true;
         }
         else if ("PAGE_SIZE".equals(strategy)) {
             Map<String, String> pageParams = new HashMap<>(resolvedQueryParams);
@@ -185,6 +190,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
 
             if (items.isEmpty()) {
                 log.debug("Page {} returned 0 items - end of pagination", currentPage);
+                paginationDone = true;
             } else {
                 log.debug("Page {} fetched: {} items", currentPage, items.size());
                 currentPage++;
@@ -201,6 +207,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
 
             if (items.isEmpty()) {
                 log.debug("Offset {} returned 0 items - end of pagination", currentOffset);
+                paginationDone = true;
             } else {
                 log.debug("Offset {} fetched: {} items", currentOffset, items.size());
                 currentOffset += items.size();
@@ -214,11 +221,21 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
 
             String pageUrl = buildUrl(resolvedUrl, pageParams);
             List<GenericRecord> items = fetchPage(pageUrl);
+            // fetchPage() has already updated currentCursor to the next cursor
+            // extracted from this response (or null if the API signaled no more pages).
 
             if (items.isEmpty()) {
-                log.debug("Cursor '{}' returned 0 items - end of pagination", currentCursor);
+                log.debug("Cursor returned 0 items, next cursor: '{}'", currentCursor);
             } else {
-                log.debug("Cursor '{}' fetched: {} items", currentCursor, items.size());
+                log.debug("Cursor fetched: {} items, next cursor: '{}'", items.size(), currentCursor);
+            }
+
+            // Termination must be driven by cursor presence, not by this page's item
+            // count: a filtered/rate-limited page can legitimately return 0 items while
+            // still carrying a valid next cursor, and a page with items can be the last
+            // one if the API returns no next cursor for it.
+            if (currentCursor == null) {
+                paginationDone = true;
             }
         }
         else {
@@ -234,7 +251,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
         String jsonResponse = retryTemplate.execute(context -> {
             ResponseEntity<String> response = restTemplate.exchange(
                     url, HttpMethod.valueOf(restConfig.getMethod()),
-                    new HttpEntity<>(resolvedHeaders), String.class
+                    buildRequestEntity(), String.class
             );
 
             if (!response.getStatusCode().is2xxSuccessful()) {
@@ -317,9 +334,13 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
                 return Collections.emptyList();
             }
         } catch (Exception e) {
-            log.error("Failed to extract items from JSON using path: {}",
-                    restConfig.getDataPath(), e);
-            return Collections.emptyList();
+            // A parsing failure here means the response body itself is broken
+            // (invalid JSON, unexpected schema) - not that pagination is exhausted.
+            // Returning an empty list would be indistinguishable from a legitimate
+            // last page and would silently truncate the ingestion.
+            throw new IllegalStateException(String.format(
+                    "Failed to extract items from JSON response using path '%s' for source '%s': %s",
+                    restConfig.getDataPath(), sourceConfig.getName(), e.getMessage()), e);
         }
     }
 
@@ -399,7 +420,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
                     String dateStr = value.toString();
                     String format = column.getFormat();
                     if (format != null && !format.isBlank()) {
-                        return LocalDate.parse(dateStr, DateTimeFormatter.ofPattern(format));
+                        return LocalDate.parse(dateStr, formatterFor(format));
                     }
                     return LocalDate.parse(dateStr);
 
@@ -407,8 +428,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
                     String datetimeStr = value.toString();
                     String datetimeFormat = column.getFormat();
                     if (datetimeFormat != null && !datetimeFormat.isBlank()) {
-                        return LocalDateTime.parse(datetimeStr,
-                                DateTimeFormatter.ofPattern(datetimeFormat));
+                        return LocalDateTime.parse(datetimeStr, formatterFor(datetimeFormat));
                     }
                     return LocalDateTime.parse(datetimeStr);
 
@@ -420,6 +440,10 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
                     value, type, column.getName(), e.getMessage());
             return value;  // Return as-is if conversion fails
         }
+    }
+
+    private DateTimeFormatter formatterFor(String pattern) {
+        return dateFormatters.computeIfAbsent(pattern, DateTimeFormatter::ofPattern);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -441,63 +465,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
     // ─────────────────────────────────────────────────────────────────────────
 
     private String resolveVariables(String input, String context) {
-        if (input == null) {
-            return null;
-        }
-
-        // Step 1: Resolve bind variables (:paramName)
-        String resolved = resolveBindVariables(input, context);
-
-        // Step 2: Resolve environment variables (${VAR})
-        resolved = resolveEnvVariables(resolved, context);
-
-        return resolved;
-    }
-
-    private String resolveBindVariables(String input, String context) {
-        Matcher matcher = BIND_PARAM_PATTERN.matcher(input);
-        StringBuffer sb = new StringBuffer();
-
-        while (matcher.find()) {
-            String paramName = matcher.group(1).substring(1);  // Remove ":"
-
-            if (!jobParameters.containsKey(paramName)) {
-                throw new IllegalStateException(String.format(
-                        "Bind variable not found in jobParameters [%s]: ':%s'%n" +
-                                "Available parameters: %s",
-                        context, paramName, jobParameters.keySet()
-                ));
-            }
-
-            Object value = jobParameters.get(paramName);
-            matcher.appendReplacement(sb, Matcher.quoteReplacement(value.toString()));
-        }
-
-        matcher.appendTail(sb);
-        return sb.toString();
-    }
-
-    private String resolveEnvVariables(String input, String context) {
-        Matcher matcher = ENV_VAR_PATTERN.matcher(input);
-        StringBuffer sb = new StringBuffer();
-
-        while (matcher.find()) {
-            String varName = matcher.group(1);
-            String envValue = System.getenv(varName);
-
-            if (envValue == null) {
-                throw new IllegalStateException(String.format(
-                        "Environment variable not found [%s]: ${%s}%n" +
-                                "Set it before running the job: export %s=<value>",
-                        context, varName, varName
-                ));
-            }
-
-            matcher.appendReplacement(sb, Matcher.quoteReplacement(envValue));
-        }
-
-        matcher.appendTail(sb);
-        return sb.toString();
+        return VariableResolver.resolve(input, jobParameters, context);
     }
 
     private Map<String, String> resolveQueryParams() {
@@ -522,5 +490,17 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
         }
 
         return headers;
+    }
+
+    private HttpEntity<String> buildRequestEntity() {
+        if (resolvedBody == null) {
+            return new HttpEntity<>(resolvedHeaders);
+        }
+
+        if (!resolvedHeaders.containsKey(HttpHeaders.CONTENT_TYPE)) {
+            resolvedHeaders.setContentType(MediaType.APPLICATION_JSON);
+        }
+
+        return new HttpEntity<>(resolvedBody, resolvedHeaders);
     }
 }

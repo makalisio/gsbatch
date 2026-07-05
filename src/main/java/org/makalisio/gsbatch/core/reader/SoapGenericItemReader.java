@@ -20,6 +20,7 @@ import org.makalisio.gsbatch.core.model.ColumnConfig;
 import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.SoapConfig;
 import org.makalisio.gsbatch.core.model.SourceConfig;
+import org.makalisio.gsbatch.core.util.VariableResolver;
 import org.springframework.batch.item.ItemStreamReader;
 import org.w3c.dom.Document;
 import org.w3c.dom.Node;
@@ -37,7 +38,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * SOAP WebService ItemReader with XPath extraction.
@@ -59,9 +59,6 @@ import java.util.regex.Pattern;
 @Slf4j
 public class SoapGenericItemReader implements ItemStreamReader<GenericRecord> {
 
-    private static final Pattern BIND_PARAM_PATTERN = Pattern.compile("(?<![:])(:[a-zA-Z][a-zA-Z0-9_]*)");
-    private static final Pattern ENV_VAR_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
-
     private final SourceConfig sourceConfig;
     private final SoapConfig soapConfig;
     private final Map<String, Object> jobParameters;
@@ -71,6 +68,9 @@ public class SoapGenericItemReader implements ItemStreamReader<GenericRecord> {
     private Queue<GenericRecord> buffer = new LinkedList<>();
     private int itemsRead = 0;
     private boolean responseFetched = false;
+
+    // Cache of compiled DateTimeFormatters, keyed by column format pattern
+    private final Map<String, DateTimeFormatter> dateFormatters = new HashMap<>();
 
     /**
      * @param sourceConfig  source configuration from YAML
@@ -162,19 +162,28 @@ public class SoapGenericItemReader implements ItemStreamReader<GenericRecord> {
     private String buildSoapRequest() {
         String template = soapConfig.getRequestTemplate();
 
-        // Resolve bind variables in template
+        // Resolve each configured param's value up front, keyed by placeholder name
+        Map<String, String> resolvedParams = new HashMap<>();
         for (Map.Entry<String, String> param : soapConfig.getRequestParams().entrySet()) {
             String paramName = param.getKey();
-            String paramValue = param.getValue();
-
-            // Resolve value from jobParameters or static
-            String resolvedValue = resolveVariables(paramValue, "soap.requestParams." + paramName);
-
-            // Replace :paramName in template
-            template = template.replace(":" + paramName, escapeXml(resolvedValue));
+            String resolvedValue = resolveVariables(param.getValue(), "soap.requestParams." + paramName);
+            resolvedParams.put(paramName, resolvedValue);
         }
 
-        return template;
+        // Substitute :paramName tokens in a single word-bounded pass so a shorter
+        // name that is a prefix of another (e.g. "status" / "statusCode") cannot
+        // corrupt the longer placeholder, unlike a plain String.replace would.
+        Matcher matcher = VariableResolver.BIND_PARAM_PATTERN.matcher(template);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String paramName = matcher.group(1).substring(1);
+            String resolvedValue = resolvedParams.get(paramName);
+            String replacement = resolvedValue != null ? escapeXml(resolvedValue) : matcher.group();
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(sb);
+
+        return sb.toString();
     }
 
     private boolean containsSoapFault(String soapResponse) {
@@ -278,15 +287,14 @@ public class SoapGenericItemReader implements ItemStreamReader<GenericRecord> {
                 case "DATE":
                     String format = column.getFormat();
                     if (format != null && !format.isBlank()) {
-                        return LocalDate.parse(value.trim(), DateTimeFormatter.ofPattern(format));
+                        return LocalDate.parse(value.trim(), formatterFor(format));
                     }
                     return LocalDate.parse(value.trim());
 
                 case "DATETIME":
                     String datetimeFormat = column.getFormat();
                     if (datetimeFormat != null && !datetimeFormat.isBlank()) {
-                        return LocalDateTime.parse(value.trim(), 
-                                DateTimeFormatter.ofPattern(datetimeFormat));
+                        return LocalDateTime.parse(value.trim(), formatterFor(datetimeFormat));
                     }
                     return LocalDateTime.parse(value.trim());
 
@@ -294,10 +302,14 @@ public class SoapGenericItemReader implements ItemStreamReader<GenericRecord> {
                     return value;
             }
         } catch (Exception e) {
-            log.warn("Failed to convert value '{}' to type {} for column {}: {}", 
+            log.warn("Failed to convert value '{}' to type {} for column {}: {}",
                      value, type, column.getName(), e.getMessage());
             return value;
         }
+    }
+
+    private DateTimeFormatter formatterFor(String pattern) {
+        return dateFormatters.computeIfAbsent(pattern, DateTimeFormatter::ofPattern);
     }
 
     private Document parseXml(String xml) throws Exception {
@@ -312,63 +324,7 @@ public class SoapGenericItemReader implements ItemStreamReader<GenericRecord> {
     // ─────────────────────────────────────────────────────────────────────────
 
     private String resolveVariables(String input, String context) {
-        if (input == null) {
-            return null;
-        }
-
-        // Step 1: Resolve bind variables (:paramName)
-        String resolved = resolveBindVariables(input, context);
-
-        // Step 2: Resolve environment variables (${VAR})
-        resolved = resolveEnvVariables(resolved, context);
-
-        return resolved;
-    }
-
-    private String resolveBindVariables(String input, String context) {
-        Matcher matcher = BIND_PARAM_PATTERN.matcher(input);
-        StringBuffer sb = new StringBuffer();
-
-        while (matcher.find()) {
-            String paramName = matcher.group(1).substring(1);  // Remove ":"
-
-            if (!jobParameters.containsKey(paramName)) {
-                throw new IllegalStateException(String.format(
-                    "Bind variable not found in jobParameters [%s]: ':%s'%n" +
-                    "Available parameters: %s",
-                    context, paramName, jobParameters.keySet()
-                ));
-            }
-
-            Object value = jobParameters.get(paramName);
-            matcher.appendReplacement(sb, Matcher.quoteReplacement(value.toString()));
-        }
-
-        matcher.appendTail(sb);
-        return sb.toString();
-    }
-
-    private String resolveEnvVariables(String input, String context) {
-        Matcher matcher = ENV_VAR_PATTERN.matcher(input);
-        StringBuffer sb = new StringBuffer();
-
-        while (matcher.find()) {
-            String varName = matcher.group(1);
-            String envValue = System.getenv(varName);
-
-            if (envValue == null) {
-                throw new IllegalStateException(String.format(
-                    "Environment variable not found [%s]: ${%s}%n" +
-                    "Set it before running the job: export %s=<value>",
-                    context, varName, varName
-                ));
-            }
-
-            matcher.appendReplacement(sb, Matcher.quoteReplacement(envValue));
-        }
-
-        matcher.appendTail(sb);
-        return sb.toString();
+        return VariableResolver.resolve(input, jobParameters, context);
     }
 
     private String escapeXml(String value) {
