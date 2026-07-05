@@ -203,6 +203,42 @@ class SqlFileLoaderTest {
         assertThat(stmts).hasSize(1);
     }
 
+    // ── classpath: prefix resolution ─────────────────────────────────────────
+
+    @Test
+    void load_classpathPrefix_loadsFileFromClasspath() {
+        SourceConfig config = new SourceConfig();
+        config.setName("test-source");
+        config.setType("SQL");
+        config.setSqlDirectory("classpath:sql");
+        config.setSqlFile("classpath-query.sql");
+
+        SqlFileLoader.LoadedSql result = loader.load(config, Map.of("status", "NEW"));
+
+        assertThat(result.getExecutableSql()).containsIgnoringCase("SELECT");
+        assertThat(result.getParameterNames()).containsExactly("status");
+    }
+
+    @Test
+    void readRawSql_classpathPrefix_returnsRawContent() {
+        String raw = loader.readRawSql("classpath:sql", "classpath-query.sql");
+
+        assertThat(raw).containsIgnoringCase("SELECT").contains(":status");
+    }
+
+    @Test
+    void load_classpathPrefix_missingFile_throwsSqlFileException() {
+        SourceConfig config = new SourceConfig();
+        config.setName("test-source");
+        config.setType("SQL");
+        config.setSqlDirectory("classpath:sql");
+        config.setSqlFile("does-not-exist.sql");
+
+        assertThatExceptionOfType(SqlFileLoader.SqlFileException.class)
+                .isThrownBy(() -> loader.load(config, Map.of()))
+                .withMessageContaining("not found on classpath");
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private void writeSql(String filename, String content) throws IOException {

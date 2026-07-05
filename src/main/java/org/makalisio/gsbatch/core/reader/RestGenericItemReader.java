@@ -24,6 +24,7 @@ import org.makalisio.gsbatch.core.model.ColumnConfig;
 import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.RestConfig;
 import org.makalisio.gsbatch.core.model.SourceConfig;
+import org.makalisio.gsbatch.core.util.VariableResolver;
 import org.springframework.batch.item.ItemStreamReader;
 import org.springframework.http.*;
 import org.springframework.retry.RetryPolicy;
@@ -38,8 +39,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * REST API ItemReader with pagination, retry, and JSON extraction.
@@ -60,8 +59,6 @@ import java.util.regex.Pattern;
 @Slf4j
 public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
 
-    private static final Pattern BIND_PARAM_PATTERN = Pattern.compile("(?<![:])(:[a-zA-Z][a-zA-Z0-9_]*)");
-    private static final Pattern ENV_VAR_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final SourceConfig sourceConfig;
@@ -87,6 +84,9 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
     private Map<String, String> resolvedQueryParams;
     private HttpHeaders resolvedHeaders;
     private String resolvedBody;
+
+    // Cache of compiled DateTimeFormatters, keyed by column format pattern
+    private final Map<String, DateTimeFormatter> dateFormatters = new HashMap<>();
 
     /**
      * @param sourceConfig    source configuration from YAML
@@ -334,9 +334,13 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
                 return Collections.emptyList();
             }
         } catch (Exception e) {
-            log.error("Failed to extract items from JSON using path: {}",
-                    restConfig.getDataPath(), e);
-            return Collections.emptyList();
+            // A parsing failure here means the response body itself is broken
+            // (invalid JSON, unexpected schema) - not that pagination is exhausted.
+            // Returning an empty list would be indistinguishable from a legitimate
+            // last page and would silently truncate the ingestion.
+            throw new IllegalStateException(String.format(
+                    "Failed to extract items from JSON response using path '%s' for source '%s': %s",
+                    restConfig.getDataPath(), sourceConfig.getName(), e.getMessage()), e);
         }
     }
 
@@ -416,7 +420,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
                     String dateStr = value.toString();
                     String format = column.getFormat();
                     if (format != null && !format.isBlank()) {
-                        return LocalDate.parse(dateStr, DateTimeFormatter.ofPattern(format));
+                        return LocalDate.parse(dateStr, formatterFor(format));
                     }
                     return LocalDate.parse(dateStr);
 
@@ -424,8 +428,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
                     String datetimeStr = value.toString();
                     String datetimeFormat = column.getFormat();
                     if (datetimeFormat != null && !datetimeFormat.isBlank()) {
-                        return LocalDateTime.parse(datetimeStr,
-                                DateTimeFormatter.ofPattern(datetimeFormat));
+                        return LocalDateTime.parse(datetimeStr, formatterFor(datetimeFormat));
                     }
                     return LocalDateTime.parse(datetimeStr);
 
@@ -437,6 +440,10 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
                     value, type, column.getName(), e.getMessage());
             return value;  // Return as-is if conversion fails
         }
+    }
+
+    private DateTimeFormatter formatterFor(String pattern) {
+        return dateFormatters.computeIfAbsent(pattern, DateTimeFormatter::ofPattern);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -458,63 +465,7 @@ public class RestGenericItemReader implements ItemStreamReader<GenericRecord> {
     // ─────────────────────────────────────────────────────────────────────────
 
     private String resolveVariables(String input, String context) {
-        if (input == null) {
-            return null;
-        }
-
-        // Step 1: Resolve bind variables (:paramName)
-        String resolved = resolveBindVariables(input, context);
-
-        // Step 2: Resolve environment variables (${VAR})
-        resolved = resolveEnvVariables(resolved, context);
-
-        return resolved;
-    }
-
-    private String resolveBindVariables(String input, String context) {
-        Matcher matcher = BIND_PARAM_PATTERN.matcher(input);
-        StringBuffer sb = new StringBuffer();
-
-        while (matcher.find()) {
-            String paramName = matcher.group(1).substring(1);  // Remove ":"
-
-            if (!jobParameters.containsKey(paramName)) {
-                throw new IllegalStateException(String.format(
-                        "Bind variable not found in jobParameters [%s]: ':%s'%n" +
-                                "Available parameters: %s",
-                        context, paramName, jobParameters.keySet()
-                ));
-            }
-
-            Object value = jobParameters.get(paramName);
-            matcher.appendReplacement(sb, Matcher.quoteReplacement(value.toString()));
-        }
-
-        matcher.appendTail(sb);
-        return sb.toString();
-    }
-
-    private String resolveEnvVariables(String input, String context) {
-        Matcher matcher = ENV_VAR_PATTERN.matcher(input);
-        StringBuffer sb = new StringBuffer();
-
-        while (matcher.find()) {
-            String varName = matcher.group(1);
-            String envValue = System.getenv(varName);
-
-            if (envValue == null) {
-                throw new IllegalStateException(String.format(
-                        "Environment variable not found [%s]: ${%s}%n" +
-                                "Set it before running the job: export %s=<value>",
-                        context, varName, varName
-                ));
-            }
-
-            matcher.appendReplacement(sb, Matcher.quoteReplacement(envValue));
-        }
-
-        matcher.appendTail(sb);
-        return sb.toString();
+        return VariableResolver.resolve(input, jobParameters, context);
     }
 
     private Map<String, String> resolveQueryParams() {

@@ -19,6 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.makalisio.gsbatch.core.model.GenericRecord;
 import org.makalisio.gsbatch.core.model.SoapConfig;
 import org.makalisio.gsbatch.core.model.SourceConfig;
+import org.makalisio.gsbatch.core.util.VariableResolver;
 import org.springframework.batch.item.ItemStreamReader;
 import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
@@ -27,8 +28,6 @@ import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * Builder for {@link SoapGenericItemReader}.
@@ -47,8 +46,6 @@ import java.util.regex.Pattern;
 @Slf4j
 @Component
 public class SoapGenericItemReaderBuilder {
-
-    private static final Pattern ENV_VAR_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
 
     public SoapGenericItemReaderBuilder() {
         log.info("SoapGenericItemReaderBuilder initialized");
@@ -215,8 +212,8 @@ public class SoapGenericItemReaderBuilder {
         }
 
         private void applyBasicAuth(HttpHeaders headers) {
-            String username = resolveEnvVars(config.getAuth().getUsername(), "soap.auth.username");
-            String password = resolveEnvVars(config.getAuth().getPassword(), "soap.auth.password");
+            String username = VariableResolver.resolveEnvVariables(config.getAuth().getUsername(), "soap.auth.username");
+            String password = VariableResolver.resolveEnvVariables(config.getAuth().getPassword(), "soap.auth.password");
 
             String auth = username + ":" + password;
             byte[] encodedAuth = java.util.Base64.getEncoder().encode(auth.getBytes());
@@ -228,41 +225,11 @@ public class SoapGenericItemReaderBuilder {
 
         private void applyCustomHeader(HttpHeaders headers) {
             String headerName = config.getAuth().getHeaderName();
-            String headerValue = resolveEnvVars(config.getAuth().getHeaderValue(), 
+            String headerValue = VariableResolver.resolveEnvVariables(config.getAuth().getHeaderValue(),
                                                 "soap.auth.headerValue");
 
             headers.set(headerName, headerValue);
             log.debug("Source '{}' - custom header '{}' added", sourceName, headerName);
-        }
-
-        private String resolveEnvVars(String input, String context) {
-            if (input == null || input.isBlank()) {
-                return input;
-            }
-
-            Matcher matcher = ENV_VAR_PATTERN.matcher(input);
-            StringBuffer sb = new StringBuffer();
-
-            while (matcher.find()) {
-                String varName = matcher.group(1);
-                String envValue = System.getenv(varName);
-
-                if (envValue == null) {
-                    throw new IllegalStateException(String.format(
-                        "Environment variable not found [%s]: ${%s}%n" +
-                        "Set it before running the job:%n" +
-                        "  export %s=<value>  # Linux/Mac%n" +
-                        "  set %s=<value>     # Windows CMD%n" +
-                        "  $env:%s='<value>'  # Windows PowerShell",
-                        context, varName, varName, varName, varName
-                    ));
-                }
-
-                matcher.appendReplacement(sb, Matcher.quoteReplacement(envValue));
-            }
-
-            matcher.appendTail(sb);
-            return sb.toString();
         }
     }
 }

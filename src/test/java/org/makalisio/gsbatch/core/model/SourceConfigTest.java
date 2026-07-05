@@ -146,6 +146,50 @@ class SourceConfigTest {
                 .withMessageContaining("soap configuration is required");
     }
 
+    @Test
+    void validate_rest_columnMissingType_throws() {
+        SourceConfig sc = new SourceConfig();
+        sc.setName("api");
+        sc.setType("REST");
+        sc.setRest(validRestConfig());
+        ColumnConfig col = new ColumnConfig();
+        col.setName("orderId");
+        sc.setColumns(List.of(col));
+
+        assertThatIllegalStateException()
+                .isThrownBy(sc::validate)
+                .withMessageContaining("Column type is required");
+    }
+
+    @Test
+    void validate_rest_columnWithType_passes() {
+        SourceConfig sc = new SourceConfig();
+        sc.setName("api");
+        sc.setType("REST");
+        sc.setRest(validRestConfig());
+        ColumnConfig col = new ColumnConfig();
+        col.setName("orderId");
+        col.setType("STRING");
+        sc.setColumns(List.of(col));
+
+        assertThatNoException().isThrownBy(sc::validate);
+    }
+
+    @Test
+    void validate_soap_columnMissingType_throws() {
+        SourceConfig sc = new SourceConfig();
+        sc.setName("ws");
+        sc.setType("SOAP");
+        sc.setSoap(validSoapConfig());
+        ColumnConfig col = new ColumnConfig();
+        col.setName("tradeId");
+        sc.setColumns(List.of(col));
+
+        assertThatIllegalStateException()
+                .isThrownBy(sc::validate)
+                .withMessageContaining("Column type is required");
+    }
+
     // ── validate() — chunkSize ───────────────────────────────────────────────
 
     @Test
@@ -291,5 +335,20 @@ class SourceConfigTest {
         sc.setSqlDirectory("/sql");
         sc.setSqlFile("orders.sql");
         return sc;
+    }
+
+    private RestConfig validRestConfig() {
+        RestConfig rest = new RestConfig();
+        rest.setUrl("https://api.example.com/orders");
+        return rest;
+    }
+
+    private SoapConfig validSoapConfig() {
+        SoapConfig soap = new SoapConfig();
+        soap.setEndpoint("https://api.example.com/TradeService");
+        soap.setSoapAction("http://example.com/GetTrades");
+        soap.setRequestTemplate("<soapenv:Envelope><soapenv:Body></soapenv:Body></soapenv:Envelope>");
+        soap.setDataPath("//trade");
+        return soap;
     }
 }
