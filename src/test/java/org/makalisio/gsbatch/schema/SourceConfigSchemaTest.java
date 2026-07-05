@@ -129,6 +129,30 @@ class SourceConfigSchemaTest {
     }
 
     @Test
+    @DisplayName("configVersion 1 is accepted")
+    void configVersion_one_isAccepted() {
+        assertValid("""
+                type: CSV
+                configVersion: 1
+                path: /tmp/x.csv
+                columns:
+                  - name: id
+                """);
+    }
+
+    @Test
+    @DisplayName("an unsupported configVersion is rejected")
+    void configVersion_unsupported_isRejected() {
+        assertInvalid("""
+                type: CSV
+                configVersion: 2
+                path: /tmp/x.csv
+                columns:
+                  - name: id
+                """);
+    }
+
+    @Test
     @DisplayName("SOAP request template without a recognized envelope tag is rejected")
     void soap_requestTemplateMissingEnvelope_isRejected() {
         assertInvalid("""

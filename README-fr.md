@@ -289,6 +289,23 @@ columns:
     format: "yyyy-MM-dd"
 ```
 
+### Version du format de configuration
+
+Chaque fichier YAML supporte de façon optionnelle `configVersion` (par
+défaut `1`, la seule version existante à ce jour — aucun fichier existant
+n'a besoin d'être modifié) :
+
+```yaml
+configVersion: 1
+name: trades
+type: CSV
+```
+
+Ceci permet de rejeter un futur changement cassant du format YAML avec un
+message clair « configVersion non supportée » dès le chargement de la
+config, plutôt que de le découvrir bien plus tard, de façon confuse, au
+fond d'un reader.
+
 ### Avec pre/post processing
 
 ```yaml
