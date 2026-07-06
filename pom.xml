@@ -9,7 +9,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.4.7</version>
+        <version>3.5.16</version>
         <relativePath/>
     </parent>
 
@@ -37,7 +37,8 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
         <!-- Versions des dépendances -->
-        <spring.boot.version>3.4.7</spring.boot.version>
+        <!-- GHSA-wwpq-f5c3-7hvx / CVE-2026-40973: Spring Boot predictable temp directory (patch: 3.5.14) -->
+        <spring.boot.version>3.5.16</spring.boot.version>
         <!-- CVE-2025-41249: spring-core improper authorization (patch: 6.2.11) -->
         <spring-framework.version>6.2.11</spring-framework.version>
         <!-- GHSA-72hv-8253-57qq: com.fasterxml.jackson.core:jackson-core (patch: 2.18.6) -->
