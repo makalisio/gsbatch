@@ -259,8 +259,10 @@
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <configuration>
                     <source>${java.version}</source>
-                    <!-- doclint all,-missing : active tous les checks SAUF @param/@return manquants -->
-                    <doclint>all,-missing</doclint>
+                    <!-- doclint all,-missing,-reference : tous les checks SAUF @param/@return
+                         manquants et les références - les {@link Xxx#getYyy()} pointent vers
+                         des getters générés par Lombok, invisibles pour javadoc -->
+                    <doclint>all,-missing,-reference</doclint>
                     <!-- Encodage explicite pour éviter les erreurs sur les caractères accentués -->
                     <encoding>UTF-8</encoding>
                     <charset>UTF-8</charset>
