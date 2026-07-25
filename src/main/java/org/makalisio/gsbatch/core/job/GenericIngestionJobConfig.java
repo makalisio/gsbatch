@@ -24,6 +24,7 @@ import org.makalisio.gsbatch.core.processor.GenericItemProcessorFactory;
 import org.makalisio.gsbatch.core.reader.GenericItemReaderFactory;
 import org.makalisio.gsbatch.core.reader.SqlFileLoader;
 import org.makalisio.gsbatch.core.tasklet.GenericTasklet;
+import org.makalisio.gsbatch.core.writer.DelegatingItemStreamWriter;
 import org.makalisio.gsbatch.core.writer.GenericItemWriterFactory;
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
@@ -37,6 +38,7 @@ import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.item.ItemProcessor;
 import org.springframework.batch.item.ItemStreamReader;
+import org.springframework.batch.item.ItemStreamWriter;
 import org.springframework.batch.item.ItemWriter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationContext;
@@ -319,16 +321,23 @@ public class GenericIngestionJobConfig {
      * Generic writer (@StepScope).
      * Resolution order: writer.type=SQL → writer.type=JAVA → bean {sourceName}Writer.
      *
+     * <p>Declared as {@code ItemStreamWriter} (via {@link DelegatingItemStreamWriter})
+     * so the step-scoped proxy carries {@code ItemStream}: Spring Batch then
+     * auto-registers the writer as a stream and {@code open()}/{@code update()}/
+     * {@code close()} reach consumer writers that implement {@code ItemStream}.
+     * With a plain {@code ItemWriter} return type the proxy would hide the
+     * interface and those callbacks would silently never fire.</p>
+     *
      * @param sourceName source name (from jobParameters)
-     * @return configured writer
+     * @return configured writer, stream lifecycle included
      */
     @Bean
     @StepScope
-    public ItemWriter<GenericRecord> genericIngestionWriter(
+    public ItemStreamWriter<GenericRecord> genericIngestionWriter(
             @Value("#{jobParameters['sourceName']}") String sourceName) {
 
         log.debug("Creating writer for source: {}", sourceName);
         SourceConfig config = configLoader.load(sourceName);
-        return writerFactory.buildWriter(config);
+        return new DelegatingItemStreamWriter(writerFactory.buildWriter(config));
     }
 }

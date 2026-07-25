@@ -21,7 +21,7 @@ mvn clean verify -P coverage
 mvn install -P prod
 ```
 
-The test suite lives in `src/test/` — 199 tests, 0 failures. Stack: JUnit 5 + Mockito 5 + AssertJ (pure unit tests, no Spring context). `@SpringBatchTest` + H2 is reserved for future integration tests covering `GenericIngestionJobConfig`.
+The test suite lives in `src/test/` — unit tests (JUnit 5 + Mockito 5 + AssertJ, no Spring context) plus `GenericIngestionJobIntegrationTest` (`@SpringBatchTest` + H2): a real end-to-end launch of `genericIngestionJob` covering the CSV reader, both writer resolution paths (convention bean and `writer.type=SQL`), and the ItemStream lifecycle through the step-scoped proxies.
 
 ## Architecture Overview
 
@@ -54,6 +54,12 @@ JobParameters (sourceName, jobParameters)
 1. `writer.type=SQL` in YAML → `SqlGenericItemWriter` (loads SQL file, binds from jobParameters + GenericRecord fields)
 2. `writer.type=JAVA` in YAML → looks up `writer.beanName` Spring bean
 3. No writer config → looks up `{sourceName}Writer` bean (convention, **required**)
+
+The resolved writer is wrapped in `DelegatingItemStreamWriter` and the step-scoped bean is
+declared as `ItemStreamWriter`: Spring Batch auto-registers it as a stream, so a consumer
+writer implementing `ItemStream` receives `open()`/`update()`/`close()`. (With a plain
+`ItemWriter` bean type the scoped proxy would hide `ItemStream` and the callbacks would
+silently never fire.)
 
 ### Processor Resolution (GenericItemProcessorFactory)
 
