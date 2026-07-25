@@ -21,6 +21,15 @@ mvn clean verify -P coverage
 mvn install -P prod
 ```
 
+## Releases
+
+Releases are tag-driven: pushing a `vX.Y.Z` tag triggers `.github/workflows/release.yml`,
+which injects the version from the tag (`versions:set`), runs `mvn verify`, and publishes
+to GitHub Packages (`maven.pkg.github.com/makalisio/gsbatch`). The pom keeps a `-SNAPSHOT`
+development version between releases — no version-bump commit is needed to release.
+Consumers either add the GitHub Packages repository (authenticated, even for public
+packages) or build from the tag with `mvn install`.
+
 The test suite lives in `src/test/` — unit tests (JUnit 5 + Mockito 5 + AssertJ, no Spring context) plus `GenericIngestionJobIntegrationTest` (`@SpringBatchTest` + H2): a real end-to-end launch of `genericIngestionJob` covering the CSV reader, both writer resolution paths (convention bean and `writer.type=SQL`), and the ItemStream lifecycle through the step-scoped proxies.
 
 ## Architecture Overview
