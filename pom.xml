@@ -15,7 +15,7 @@
 
     <groupId>org.makalisio</groupId>
     <artifactId>gsbatch</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.0.1-SNAPSHOT</version>
     <name>gsbatch</name>
     <description>Generic Spring Batch ingestion core framework</description>
     <packaging>jar</packaging>
@@ -374,5 +374,17 @@
         </repository>
     </repositories>
     -->
+
+    <!-- Publication des releases sur GitHub Packages.
+         Le workflow .github/workflows/release.yml se déclenche sur un tag vX.Y.Z,
+         injecte la version depuis le tag (versions:set) et exécute mvn deploy.
+         Le pom garde une version de développement -SNAPSHOT entre les releases. -->
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages - makalisio/gsbatch</name>
+            <url>https://maven.pkg.github.com/makalisio/gsbatch</url>
+        </repository>
+    </distributionManagement>
 
 </project>
