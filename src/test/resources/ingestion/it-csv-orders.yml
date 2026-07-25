@@ -1,0 +1,15 @@
+# Source d'intégration : CSV → writer Java par convention (bean "it-csv-ordersWriter").
+# Le fichier CSV est écrit par le test dans target/it-data/ avant le lancement.
+name: it-csv-orders
+type: CSV
+chunkSize: 2
+
+path: target/it-data/it-orders.csv
+delimiter: ";"
+skipHeader: true
+
+columns:
+  - name: order_id
+    type: STRING
+  - name: amount
+    type: STRING
