@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS IT_ORDERS (
+    order_id VARCHAR(20) NOT NULL,
+    amount   VARCHAR(20)
+);
